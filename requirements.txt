@@ -1,0 +1,4 @@
+dash>=4.0.0
+maxminddb>=3.0.0
+plotly>=6.3.1
+psutil>=7.0.0
