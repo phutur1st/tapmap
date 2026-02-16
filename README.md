@@ -5,23 +5,44 @@
 TapMap shows your active network connections and where they are located.  
 It is fast, simple and runs entirely on your own machine.
 
-TapMap is not a firewall or a full security suite.
-Think of it as a network thermometer that gives you a quick first look.
+TapMap is not a firewall or a full security suite.  
+Think of it as a network thermometer for a quick overview.
+
+---
+
+## Screenshot
+
+![TapMap main view](docs/screenshot.png)
 
 ---
 
 ## Download
 
-Download the latest release:  
-https://github.com/USERNAME/tapmap/releases
+Download the latest version from the Releases page:
+
+https://github.com/olalie/tapmap/releases
 
 Available builds:
 
-- Windows (exe)
-- macOS
-- Linux (Ubuntu)
+- Windows (zip)
+- macOS (zip)
+- Linux (zip)
 
-No installation required. Download and run.
+No installation required. Download, extract and run.
+
+---
+
+## Windows SmartScreen
+
+Windows may show a SmartScreen warning the first time you run TapMap.  
+This is normal for new applications that are not digitally signed.
+
+To start the program:
+
+1. Click **More info**.
+2. Click **Run anyway**.
+
+TapMap runs locally and does not install anything on your system.
 
 ---
 
@@ -34,9 +55,33 @@ http://127.0.0.1:8050/
 
 ---
 
-## Screenshot
+## GeoIP databases (required)
 
-![TapMap main view](docs/screenshot.png)
+TapMap uses local MaxMind GeoLite2 databases for geolocation.  
+The databases are not included in the download.
+
+TapMap can run without them, but geolocation will be disabled.
+
+Required files:
+
+- GeoLite2-City.mmdb
+- GeoLite2-ASN.mmdb
+
+Download is free from MaxMind, but requires an account and acceptance of license terms:
+
+https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
+
+### If you use the prebuilt release
+
+1. Extract the downloaded zip file.
+2. Place the `.mmdb` files in the `data` folder next to the TapMap executable.
+
+### If you run TapMap from source with Python
+
+Place the `.mmdb` files in the folder defined by `GEO_DATA_DIR` in `config.py`.
+
+Update recommendation: download updated databases regularly (for example monthly).  
+Redistribution rules depend on the MaxMind license terms.
 
 ---
 
@@ -51,7 +96,7 @@ http://127.0.0.1:8050/
 ### Open ports
 ![Open ports](docs/openports.png)
 
-### My info
+### About TapMap
 ![My info](docs/myinfo.png)
 
 ---
@@ -92,8 +137,8 @@ If something looks strange, you can investigate further.
 | O | Open ports |
 | T | Show cache in terminal |
 | C | Clear cache |
-| I | My info |
 | H | Help |
+| A | About |
 | ESC | Close window |
 
 ---
@@ -103,7 +148,7 @@ If something looks strange, you can investigate further.
 - TapMap runs locally.
 - No connection data is sent anywhere.
 - Geolocation uses local MaxMind databases.
-- If `MY_LOCATION = "auto"`, TapMap makes one request to detect your public IP.
+- If `MY_LOCATION = "auto"`, TapMap makes a single request to detect your public IP.
 - To detect offline status, TapMap performs short connection checks to the public DNS servers 1.1.1.1 and 8.8.8.8.
 
 ---
@@ -112,7 +157,7 @@ If something looks strange, you can investigate further.
 
 TapMap is free and open source.
 
-⭐ If you like TapMap, please give it a star on GitHub.
+⭐ If you like TapMap, please give it a star on GitHub.  
 It helps others discover the project.
 
 If it helps you, consider supporting the project:
@@ -149,32 +194,11 @@ Requirements:
 
 Install dependencies:
 
-```bash
-pip install -r requirements.txt
-```
+    pip install -r requirements.txt
 
 Run:
 
-```bash
-python tapmap.py
-```
-
----
-
-## GeoIP databases (required)
-
-TapMap uses MaxMind GeoLite2 databases.
-
-Required files:
-
-- `GeoLite2-City.mmdb`
-- `GeoLite2-ASN.mmdb`
-
-Steps:
-
-1. Create a free account at MaxMind.
-2. Download the GeoLite2 City and ASN databases.
-3. Place the `.mmdb` files in the folder defined by `GEO_DATA_DIR` in `config.py`.
+    python tapmap.py
 
 ---
 

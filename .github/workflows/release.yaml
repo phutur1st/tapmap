@@ -32,16 +32,30 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build with PyInstaller spec
+      # -------- WINDOWS & LINUX BUILD --------
+      - name: Build (Windows/Linux)
+        if: runner.os != 'macOS'
         run: |
           python -m PyInstaller --noconfirm --clean tapmap.spec
 
+      # -------- MACOS BUILD (.app) --------
+      - name: Build macOS .app
+        if: runner.os == 'macOS'
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --name TapMap tapmap.py
+
+      # -------- ENSURE DATA FOLDER --------
       - name: Ensure external data folder next to app
         run: |
           python - << 'PY'
           from pathlib import Path
+          import os
 
-          app_dir = Path("dist") / "tapmap"
+          if os.environ["RUNNER_OS"] == "macOS":
+              app_dir = Path("dist") / "TapMap.app" / "Contents" / "MacOS"
+          else:
+              app_dir = Path("dist") / "tapmap"
+
           data_dir = app_dir / "data"
           data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,7 +73,15 @@ jobs:
           PY
         shell: bash
 
-      - name: Create release zip
+      # -------- CREATE ZIP --------
+      - name: Create release zip (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          ditto -c -k --keepParent "dist/TapMap.app" "tapmap-${TAG}-macos.zip"
+
+      - name: Create release zip (Windows/Linux)
+        if: runner.os != 'macOS'
         run: |
           python - << 'PY'
           import os
@@ -85,6 +107,7 @@ jobs:
           PY
         shell: bash
 
+      # -------- SHA256 --------
       - name: Create SHA256
         if: runner.os != 'Windows'
         run: |
@@ -101,6 +124,7 @@ jobs:
           $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
           "$hash  $file" | Out-File -Encoding ascii "$file.sha256"
 
+      # -------- RELEASE --------
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
