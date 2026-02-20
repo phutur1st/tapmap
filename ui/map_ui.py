@@ -1,9 +1,8 @@
-"""
-Plotly map rendering for TapMap.
+"""Define Plotly map rendering for TapMap.
 
-Builds a dark themed world map with:
+Build a dark-themed world map with:
 - a base choropleth layer
-- connection lines from a "my location" marker (if enabled)
+- connection lines from a "my location" marker when enabled
 - target markers with hover summaries
 """
 
@@ -22,23 +21,221 @@ CustomData: TypeAlias = dict[str, object]
 
 
 class MapUI:
-    """Build Plotly figures for the TapMap Dash UI."""
+    """Build Plotly figures for the TapMap UI."""
 
     COUNTRY_CODES: Final[tuple[str, ...]] = (
-        "AFG","ALB","DZA","AND","AGO","ATG","ARG","ARM","AUS","AUT","AZE","BHS","BHR","BGD","BRB",
-        "BLR","BEL","BLZ","BEN","BTN","BOL","BIH","BWA","BRA","BRN","BGR","BFA","BDI","KHM","CMR",
-        "CAN","CPV","CAF","TCD","CHL","CHN","COL","COM","COD","COG","CRI","CIV","HRV","CUB","CYP",
-        "CZE","DNK","DJI","DMA","DOM","ECU","EGY","SLV","GNQ","ERI","EST","SWZ","ETH","FJI","FIN",
-        "FRA","GAB","GMB","GEO","DEU","GHA","GRC","GRD","GTM","GIN","GNB","GUY","HTI","HND","HUN",
-        "ISL","IND","IDN","IRN","IRQ","IRL","ISR","ITA","JAM","JPN","JOR","KAZ","KEN","KIR","PRK",
-        "KOR","KWT","KGZ","LAO","LVA","LBN","LSO","LBR","LBY","LIE","LTU","LUX","MDG","MWI","MYS",
-        "MDV","MLI","MLT","MHL","MRT","MUS","MEX","FSM","MDA","MCO","MNG","MNE","MAR","MOZ","MMR",
-        "NAM","NRU","NPL","NLD","NZL","NIC","NER","NGA","MKD","NOR","OMN","PAK","PLW","PAN","PNG",
-        "PRY","PER","PHL","POL","PRT","QAT","ROU","RUS","RWA","KNA","LCA","VCT","WSM","SMR","STP",
-        "SAU","SEN","SRB","SYC","SLE","SGP","SVK","SVN","SLB","SOM","ZAF","SSD","ESP","LKA","SDN",
-        "SUR","SWE","CHE","SYR","TWN","TJK","TZA","THA","TLS","TGO","TON","TTO","TUN","TUR","TKM",
-        "TUV","UGA","UKR","ARE","GBR","USA","URY","UZB","VUT","VAT","VEN","VNM","YEM","ZMB","ZWE",
-        "GRL","ATA","CXR","CCK","FRO","GLP","GUF","MTQ","MYT","REU","SHN","SPM","WLF","ALA","BES","CUW","CYM"
+        "AFG",
+        "ALB",
+        "DZA",
+        "AND",
+        "AGO",
+        "ATG",
+        "ARG",
+        "ARM",
+        "AUS",
+        "AUT",
+        "AZE",
+        "BHS",
+        "BHR",
+        "BGD",
+        "BRB",
+        "BLR",
+        "BEL",
+        "BLZ",
+        "BEN",
+        "BTN",
+        "BOL",
+        "BIH",
+        "BWA",
+        "BRA",
+        "BRN",
+        "BGR",
+        "BFA",
+        "BDI",
+        "KHM",
+        "CMR",
+        "CAN",
+        "CPV",
+        "CAF",
+        "TCD",
+        "CHL",
+        "CHN",
+        "COL",
+        "COM",
+        "COD",
+        "COG",
+        "CRI",
+        "CIV",
+        "HRV",
+        "CUB",
+        "CYP",
+        "CZE",
+        "DNK",
+        "DJI",
+        "DMA",
+        "DOM",
+        "ECU",
+        "EGY",
+        "SLV",
+        "GNQ",
+        "ERI",
+        "EST",
+        "SWZ",
+        "ETH",
+        "FJI",
+        "FIN",
+        "FRA",
+        "GAB",
+        "GMB",
+        "GEO",
+        "DEU",
+        "GHA",
+        "GRC",
+        "GRD",
+        "GTM",
+        "GIN",
+        "GNB",
+        "GUY",
+        "HTI",
+        "HND",
+        "HUN",
+        "ISL",
+        "IND",
+        "IDN",
+        "IRN",
+        "IRQ",
+        "IRL",
+        "ISR",
+        "ITA",
+        "JAM",
+        "JPN",
+        "JOR",
+        "KAZ",
+        "KEN",
+        "KIR",
+        "PRK",
+        "KOR",
+        "KWT",
+        "KGZ",
+        "LAO",
+        "LVA",
+        "LBN",
+        "LSO",
+        "LBR",
+        "LBY",
+        "LIE",
+        "LTU",
+        "LUX",
+        "MDG",
+        "MWI",
+        "MYS",
+        "MDV",
+        "MLI",
+        "MLT",
+        "MHL",
+        "MRT",
+        "MUS",
+        "MEX",
+        "FSM",
+        "MDA",
+        "MCO",
+        "MNG",
+        "MNE",
+        "MAR",
+        "MOZ",
+        "MMR",
+        "NAM",
+        "NRU",
+        "NPL",
+        "NLD",
+        "NZL",
+        "NIC",
+        "NER",
+        "NGA",
+        "MKD",
+        "NOR",
+        "OMN",
+        "PAK",
+        "PLW",
+        "PAN",
+        "PNG",
+        "PRY",
+        "PER",
+        "PHL",
+        "POL",
+        "PRT",
+        "QAT",
+        "ROU",
+        "RUS",
+        "RWA",
+        "KNA",
+        "LCA",
+        "VCT",
+        "WSM",
+        "SMR",
+        "STP",
+        "SAU",
+        "SEN",
+        "SRB",
+        "SYC",
+        "SLE",
+        "SGP",
+        "SVK",
+        "SVN",
+        "SLB",
+        "SOM",
+        "ZAF",
+        "SSD",
+        "ESP",
+        "LKA",
+        "SDN",
+        "SUR",
+        "SWE",
+        "CHE",
+        "SYR",
+        "TWN",
+        "TJK",
+        "TZA",
+        "THA",
+        "TLS",
+        "TGO",
+        "TON",
+        "TTO",
+        "TUN",
+        "TUR",
+        "TKM",
+        "TUV",
+        "UGA",
+        "UKR",
+        "ARE",
+        "GBR",
+        "USA",
+        "URY",
+        "UZB",
+        "VUT",
+        "VAT",
+        "VEN",
+        "VNM",
+        "YEM",
+        "ZMB",
+        "ZWE",
+        "GRL",
+        "ATA",
+        "CXR",
+        "CCK",
+        "FRO",
+        "GLP",
+        "GUF",
+        "MTQ",
+        "MYT",
+        "REU",
+        "SHN",
+        "SPM",
+        "WLF",
+        "ALA",
+        "BES",
+        "CUW",
+        "CYM",
     )
     VALUES: Final[tuple[int, ...]] = (1,) * len(COUNTRY_CODES)
 
@@ -70,7 +267,7 @@ class MapUI:
 
     @staticmethod
     def _haversine_km(a: LonLat, b: LonLat, radius_km: float) -> float:
-        """Return great-circle distance between two (lon, lat) points in kilometers."""
+        """Compute great-circle distance between two (lon, lat) points in kilometers."""
         import math
 
         lon1, lat1 = a
@@ -92,13 +289,12 @@ class MapUI:
         point_sets: PointSets,
         summaries: dict[str, str] | None = None,
     ) -> go.Figure:
-        """
-        Build a world map figure.
+        """Build a world map figure.
 
         Color rules:
             - MAGENTA: normal remote targets and lines
-            - YELLOW: targets and lines that have nearby neighbors (zoom recommended)
-            - CYAN: local marker (if enabled)
+            - YELLOW: targets and lines with nearby neighbors (zoom recommended)
+            - CYAN: local marker when enabled
         """
         summaries = summaries or {}
         targets, my_location = point_sets
@@ -175,7 +371,7 @@ class MapUI:
             lats = [lat for _, lat in targets]
 
             if self.debug:
-                unique_xy = len(set(zip(lons, lats)))
+                unique_xy = len(set(zip(lons, lats, strict=False)))
                 self.logger.debug("Figure targets: count=%s unique_xy=%s", len(lons), unique_xy)
 
             colors: list[str] = []
@@ -190,7 +386,9 @@ class MapUI:
                     lon=lons,
                     lat=lats,
                     mode="markers",
-                    marker=dict(size=10, color=colors, symbol="circle", line=dict(width=0), opacity=1.0),
+                    marker=dict(
+                        size=10, color=colors, symbol="circle", line=dict(width=0), opacity=1.0
+                    ),
                     showlegend=False,
                     hovertemplate="%{text}<extra></extra>",
                     text=texts,
@@ -212,6 +410,10 @@ class MapUI:
             uirevision="keep",
         )
 
+        font_family = (
+            "ui-monospace, SFMono-Regular, Menlo, Consolas, "
+            "'Liberation Mono', 'Courier New', monospace"
+        )
         fig.update_layout(
             margin=dict(l=0, r=0, t=0, b=0),
             paper_bgcolor="black",
@@ -226,7 +428,7 @@ class MapUI:
                 bordercolor=self.HOVER_BORDER,
                 font=dict(
                     color=self.HOVER_FONT,
-                    family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', 'Courier New', monospace",
+                    family=font_family,
                     size=14,
                 ),
             ),

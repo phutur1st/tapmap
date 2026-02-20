@@ -1,68 +1,34 @@
-"""
-Configuration for TapMap.
+"""Define application configuration for TapMap.
 
-Users can edit this file to adjust basic behaviour
-without modifying the application code.
+Edit this file to adjust basic behavior without modifying application code.
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Final, Literal
 
-# ---------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------
+# Configure local map marker behavior.
 
-def _get_base_dir() -> Path:
-    """
-    Base directory for TapMap.
-
-    - Source run: directory containing config.py
-    - PyInstaller exe: directory containing the executable
-    """
-    if getattr(sys, "frozen", False):
-        # Running as PyInstaller executable
-        return Path(sys.executable).resolve().parent
-    # Running from source
-    return Path(__file__).resolve().parent
-
-
-# Base directory of the project or executable
-BASE_DIR: Final[Path] = _get_base_dir()
-
-# Directory containing GeoLite2 databases
-GEO_DATA_DIR: Final[Path] = BASE_DIR / "data"
-
-
-# ---------------------------------------------------------------------
-# Local map marker
-# ---------------------------------------------------------------------
-
-# Type for location setting
 LocationMode = Literal["auto", "none"]
 
-# Local map marker:
-# - (lon, lat): fixed manual location
+# Local map marker options:
+# - (lon, lat): fixed manual coordinates
 # - "auto": approximate location based on public IP
-# - "none": no local marker
+# - "none": disable local marker
 # MY_LOCATION: Final[tuple[float, float] | LocationMode] = (11.3421, 59.5950)
 MY_LOCATION: Final[tuple[float, float] | LocationMode] = "auto"
 # MY_LOCATION: Final[tuple[float, float] | LocationMode] = "none"
 
 
-# ---------------------------------------------------------------------
-# Polling and map behaviour
-# ---------------------------------------------------------------------
+# Configure polling interval and map behavior.
 
-# Snapshot interval in milliseconds
+# Interval between model snapshots and cache updates.
 POLL_INTERVAL_MS: Final[int] = 5_000
 
-# Decimal precision for grouping endpoints on the map
-# 3 ≈ 100 m precision
+# Decimal precision used when grouping endpoints on the map.
+# 3 corresponds to approximately 100 m precision.
 COORD_PRECISION: Final[int] = 3
 
-# Distance threshold for marking endpoints as "nearby"
-# Endpoints closer than this distance are shown in yellow.
+# Distance threshold in kilometers for marking endpoints as nearby.
+# Endpoints within this distance are shown in yellow.
 ZOOM_NEAR_KM: Final[float] = 25.0

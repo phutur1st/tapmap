@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 import psutil
 
 
 @dataclass(frozen=True)
 class ProcessInfo:
-    """Process metadata returned by NetInfo."""
+    """Store process metadata for a socket record."""
+
     status: str
     label: str
     name: str | None = None
@@ -17,15 +19,14 @@ class ProcessInfo:
 
 
 class NetInfo:
-    """
-    Read socket information via psutil and attach process metadata.
+    """Collect socket records via psutil and attach process metadata.
 
-    Returns a raw snapshot. The model decides which records are used for cache and mapping.
+    Return a raw snapshot for downstream filtering and mapping.
 
     Args:
         allowed_statuses:
-            If provided, only include TCP connections whose status is in this set.
-            UDP sockets are always included.
+            If set, include only TCP connections with a status in this set.
+            Always include UDP sockets.
     """
 
     KINDS = ("tcp", "udp")
@@ -34,12 +35,20 @@ class NetInfo:
         self.allowed_statuses = allowed_statuses
 
     def get_data(self) -> list[dict[str, Any]]:
-        """Return a list of connection dictionaries with socket and process info."""
+        """Return connection records with socket and process fields."""
         proc_cache: dict[int, ProcessInfo] = {}
         results: list[dict[str, Any]] = []
 
         for proto in self.KINDS:
-            for conn in psutil.net_connections(kind=proto):
+            try:
+                conns = psutil.net_connections(kind=proto)
+            except (psutil.AccessDenied, PermissionError):
+                # macOS may deny access to system-wide connection data.
+                continue
+            except (OSError, RuntimeError):
+                continue
+
+            for conn in conns:
                 if not self._is_included(conn, proto=proto):
                     continue
 
@@ -71,15 +80,16 @@ class NetInfo:
         return results
 
     def _is_included(self, conn: Any, *, proto: str) -> bool:
-        """Return True if the connection should be included in the snapshot."""
+        """Return True if the connection is included in the snapshot."""
         status = conn.status or "NONE"
-        if proto == "tcp" and self.allowed_statuses is not None and status not in self.allowed_statuses:
-            return False
-        return True
+        return not (
+            proto == "tcp"
+            and self.allowed_statuses is not None
+            and status not in self.allowed_statuses
+        )
 
     def _process_info(self, pid: int | None, cache: dict[int, ProcessInfo]) -> ProcessInfo:
-        """
-        Return process metadata for a PID.
+        """Return process metadata for a PID.
 
         Status values:
             OK, No process, Access denied, Unavailable
@@ -137,7 +147,7 @@ class NetInfo:
 
     @staticmethod
     def _split_addr(addr: Any) -> tuple[str | None, int | None]:
-        """Split a psutil address into (ip, port)."""
+        """Return (ip, port) from a psutil address value."""
         if not addr:
             return None, None
         try:

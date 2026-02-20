@@ -1,7 +1,6 @@
-"""
-Status cache for the TapMap status line.
+"""Define status cache for the TapMap status line.
 
-Tracks unique remote endpoints over time and builds the
+Track unique remote endpoints over time and build the
 EST - LOC - NON_GEO = GEO -> RIP -> RLOC chain.
 """
 
@@ -15,14 +14,14 @@ from typing import Any
 
 @dataclass
 class StatusCache:
-    """
-    Accumulates endpoint statistics across snapshots.
+    """Accumulate endpoint statistics across snapshots.
 
-    All sets are based on unique keys:
+    All sets use unique keys:
     - est, loc, non_geo, geo: (ip, port)
     - rip: ip
     - rloc: (lat, lon)
     """
+
     est: set[tuple[str, int]] = field(default_factory=set)
     loc: set[tuple[str, int]] = field(default_factory=set)
     non_geo: set[tuple[str, int]] = field(default_factory=set)
@@ -31,7 +30,7 @@ class StatusCache:
     rloc: set[tuple[float, float]] = field(default_factory=set)
 
     def clear(self) -> None:
-        """Reset all accumulated counters."""
+        """Clear all accumulated sets."""
         self.est.clear()
         self.loc.clear()
         self.non_geo.clear()
@@ -40,11 +39,10 @@ class StatusCache:
         self.rloc.clear()
 
     def update(self, cache_items: list[dict[str, Any]]) -> None:
-        """
-        Merge a new snapshot into the cache.
+        """Merge a snapshot into the cache.
 
-        cache_items contains ESTABLISHED endpoints with:
-        ip, port, is_local, lat, lon, etc.
+        cache_items contains established endpoints with keys such as:
+        ip, port, is_local, lat, lon.
         """
         for item in cache_items:
             ip = item.get("ip")
@@ -82,8 +80,8 @@ class StatusCache:
         }
 
     @classmethod
-    def from_store(cls, data: Any) -> "StatusCache":
-        """Rebuild a StatusCache from Dash store data."""
+    def from_store(cls, data: Any) -> StatusCache:
+        """Create a StatusCache from Dash store data."""
         cache = cls()
         if not isinstance(data, dict):
             return cache
@@ -128,9 +126,8 @@ class StatusCache:
 
         return cache
 
-
     def format_chain(self, rloc_map: int | None = None) -> str:
-        """Return the formatted status chain for the UI.
+        """Format the status chain for the UI.
 
         Args:
             rloc_map: Number of remote location groups shown on the map.
@@ -143,14 +140,10 @@ class StatusCache:
 
         rloc = rloc_map if rloc_map is not None else len(self.rloc)
 
-        return (
-            f"EST {est} - LOC {loc} - NON_GEO {non_geo} = "
-            f"GEO {geo} -> RIP {rip} -> RLOC {rloc}"
-        )
-    
+        return f"EST {est} - LOC {loc} - NON_GEO {non_geo} = GEO {geo} -> RIP {rip} -> RLOC {rloc}"
+
     def log_cache(self, ui_cache: dict[str, Any], *, title: str = "CACHE SNAPSHOT") -> None:
-        """
-        Write a readable cache snapshot to the terminal log.
+        """Log a readable cache snapshot.
 
         Args:
             ui_cache: UI cache keyed by IP.
@@ -194,7 +187,7 @@ class StatusCache:
                 return ", ".join(ps) if ps else "-"
             return "-"
 
-        # Deterministic output: sort by IP string
+        # Keep output stable across runs.
         for ip in sorted(cache.keys(), key=lambda s: str(s)):
             entry = cache.get(ip)
             if not isinstance(entry, dict):
@@ -206,8 +199,8 @@ class StatusCache:
             place = ", ".join([x for x in [city, country] if x]) or "-"
 
             lines.append(
-                f"{ip:<40}  {asn_org}  place={place}  ports={ports_text(entry)}  procs={procs_text(entry)}"
+                f"{ip:<40}  {asn_org}  place={place}  "
+                f"ports={ports_text(entry)}  procs={procs_text(entry)}"
             )
 
         logger.info("\n".join(lines))
-

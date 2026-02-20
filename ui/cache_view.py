@@ -1,10 +1,7 @@
-"""
-Cache and view building for TapMap.
+"""Define cache and view building for TapMap.
 
-This module:
-- merges map candidates into a per-IP cache
-- aggregates cached entries into one marker per rounded coordinate
-- generates hover summaries and click details for the UI
+Merge map candidates into a per-IP cache, group cached entries by rounded
+coordinates, and build hover summaries and click details for the UI.
 """
 
 from __future__ import annotations
@@ -16,7 +13,7 @@ from typing import Any
 
 
 class CacheViewBuilder:
-    """Build UI cache and derived map view structures."""
+    """Build UI cache and map view data."""
 
     def __init__(self, coord_precision: int = 3, debug: bool = False):
         self.coord_precision = int(coord_precision)
@@ -28,11 +25,10 @@ class CacheViewBuilder:
         ui_cache: dict[str, Any],
         map_candidates: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """
-        Merge map candidates into a per-IP cache.
+        """Merge map candidates into a per-IP cache.
 
-        Cache is keyed by IP. Each entry accumulates ports and process names over time.
-        Stored format is JSON-friendly (lists), while merging uses local sets.
+        Key entries by IP and accumulate ports and process names across snapshots.
+        Store values in JSON-friendly lists.
         """
         cache = dict(ui_cache) if isinstance(ui_cache, dict) else {}
 
@@ -72,17 +68,16 @@ class CacheViewBuilder:
             entry["ports"] = sorted(ports_set)
             entry["processes"] = sorted(procs_set)
 
-            # Fill missing geo/asn info when it appears later.
+            # Candidate updates may arrive after the initial cache entry.
             for key in ("lon", "lat", "city", "country", "asn", "asn_org"):
                 if entry.get(key) is None and candidate.get(key) is not None:
                     entry[key] = candidate.get(key)
 
         return cache
 
-
     @staticmethod
     def format_list_compact(items: list[Any], max_items: int) -> str:
-        """Return comma-separated values, truncated with +N overflow."""
+        """Format items as comma-separated values with optional +N overflow."""
         cleaned: list[str] = []
         for item in items:
             if item is None:
@@ -100,12 +95,12 @@ class CacheViewBuilder:
         shown = ", ".join(cleaned[:max_items])
         return f"{shown} +{len(cleaned) - max_items}"
 
-
     def build_view_from_cache(self, ui_cache: dict[str, Any]) -> dict[str, Any]:
-        """
-        Aggregate cached IP entries by rounded coordinate so overlapping endpoints become one marker.
+        """Group cached IP entries by rounded coordinates.
 
-        Returns:
+        Collapse overlapping endpoints into one marker per coordinate group.
+
+        Result format:
             {
             "points": [(lon, lat), ...],
             "summaries": {"0": "...", "1": "..."},
@@ -153,10 +148,7 @@ class CacheViewBuilder:
             else:
                 place = "Unknown place name"
 
-            if endpoint_count > 1:
-                line1 = f"{place} ({endpoint_count} endpoints)"
-            else:
-                line1 = place
+            line1 = f"{place} ({endpoint_count} endpoints)" if endpoint_count > 1 else place
 
             # --- Networks ---
             unique_orgs = sorted({e.get("asn_org") for e in entries if e.get("asn_org")})
@@ -204,11 +196,7 @@ class CacheViewBuilder:
                     f"  Procs: {', '.join(e_procs) if e_procs else '-'}"
                 )
 
-            details[key_str] = (
-                f"Location: {place}\n"
-                f"{counts_line}\n\n"
-                + "\n\n".join(ip_lines)
-            )
+            details[key_str] = f"Location: {place}\n{counts_line}\n\n" + "\n\n".join(ip_lines)
 
         return {
             "points": points,
@@ -217,7 +205,7 @@ class CacheViewBuilder:
         }
 
     def debug_coords(self, ui_cache: dict[str, Any], *, top_n: int = 10) -> None:
-        """Log coordinate collision stats for debugging."""
+        """Log coordinate collision statistics."""
         if not self.debug:
             return
 
@@ -247,4 +235,3 @@ class CacheViewBuilder:
         self.logger.debug("Top coord duplicates:")
         for (lon, lat), n in top:
             self.logger.debug("  (%s, %s) x%s", lon, lat, n)
-

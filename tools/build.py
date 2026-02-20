@@ -1,11 +1,12 @@
-"""
-Build TapMap using PyInstaller.
+"""Build TapMap using PyInstaller.
 
 Run from project root:
     python tools/build.py
 """
+
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import stat
@@ -21,6 +22,7 @@ BUILD_DIR = Path("build")
 
 
 def run(cmd: list[str]) -> None:
+    """Run a subprocess command and raise on failure."""
     print(">", " ".join(cmd))
     subprocess.run(cmd, check=True)
 
@@ -28,23 +30,19 @@ def run(cmd: list[str]) -> None:
 def stop_running_app(app_name: str) -> None:
     """Best effort: terminate a running packaged exe that may lock dist/."""
     exe_name = f"{app_name}.exe"
-    try:
+    with contextlib.suppress(Exception):
         subprocess.run(
             ["taskkill", "/F", "/IM", exe_name],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    except Exception:
-        pass
 
 
 def _on_rm_error(func, path: str, _exc_info) -> None:
     """If a file is read-only, make it writable and retry."""
-    try:
+    with contextlib.suppress(Exception):
         os.chmod(path, stat.S_IWRITE)
-    except Exception:
-        pass
     func(path)
 
 
@@ -67,6 +65,7 @@ def rm_tree(path: Path, *, retries: int = 12, delay_s: float = 0.25) -> None:
 
 
 def main() -> None:
+    """Build a packaged TapMap executable using PyInstaller."""
     # Stop a running exe that may lock dist/ files.
     stop_running_app(APP_NAME)
 

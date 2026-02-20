@@ -1,48 +1,63 @@
-"""
-Public IP lookup utilities.
+"""Provide public IP lookup utilities.
 
-This module resolves the machine's public IP address using a small external
-service. The result is validated as an IPv4 or IPv6 address.
+Query external services for the host public IP address and validate the result
+as an IPv4 or IPv6 address.
 """
 
 from __future__ import annotations
 
 import ipaddress
 import logging
+import ssl
+from collections.abc import Iterator
 from typing import Final
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
+import certifi
 
 LOGGER = logging.getLogger(__name__)
 
-IPIFY_URL: Final[str] = "https://api.ipify.org"
+DEFAULT_TIMEOUT_S: Final[float] = 2.0
+USER_AGENT: Final[str] = "TapMap/1.0 (+https://github.com/olalie/tapmap)"
+
+IP_SERVICES: Final[tuple[str, ...]] = (
+    "https://api.ipify.org",  # often IPv4
+    "https://checkip.amazonaws.com",  # often IPv4
+    "https://ifconfig.me/ip",  # often IPv6
+    "https://icanhazip.com",  # often IPv6
+)
 
 
-def get_public_ip(*, timeout_s: float = 2.0) -> str | None:
-    """
-    Return the public IP address of the current machine.
-
-    The function queries a lightweight external service.
-    Returns None if the IP cannot be resolved or validated.
+def iter_public_ip_candidates(*, timeout_s: float = DEFAULT_TIMEOUT_S) -> Iterator[str]:
+    """Yield validated public IP addresses from multiple services.
 
     Args:
         timeout_s: Request timeout in seconds.
 
-    Returns:
-        Public IP address as a string, or None on failure.
+    Yields:
+        Public IP addresses as IPv4 or IPv6 strings.
     """
-    try:
-        with urlopen(IPIFY_URL, timeout=timeout_s) as resp:
-            raw_ip = resp.read().decode("utf-8").strip()
-    except URLError as exc:
-        LOGGER.debug("Public IP lookup failed: %s", exc)
-        return None
+    context = ssl.create_default_context(cafile=certifi.where())
 
-    try:
-        ipaddress.ip_address(raw_ip)
-    except ValueError:
-        LOGGER.debug("Public IP lookup returned invalid IP: %r", raw_ip)
-        return None
+    for url in IP_SERVICES:
+        request = Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urlopen(request, timeout=timeout_s, context=context) as resp:
+                raw_ip = resp.read().decode("utf-8").strip()
+        except URLError as exc:
+            LOGGER.debug("Public IP lookup failed for %s: %s", url, exc)
+            continue
 
-    return raw_ip
+        try:
+            ipaddress.ip_address(raw_ip)
+        except ValueError:
+            LOGGER.debug("Public IP lookup returned invalid IP from %s: %r", url, raw_ip)
+            continue
+
+        yield raw_ip
+
+
+def get_public_ip(*, timeout_s: float = DEFAULT_TIMEOUT_S) -> str | None:
+    """Return the first validated public IP address, or None."""
+    return next(iter_public_ip_candidates(timeout_s=timeout_s), None)

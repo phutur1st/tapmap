@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import ipaddress
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from dash import dcc, html
 
@@ -9,10 +10,9 @@ from ui.help_text import HELP_CONTENT
 
 
 class ModalTextBuilder:
-    """
-    Build modal content for menu actions and map clicks.
+    """Build modal content for menu actions and map clicks.
 
-    All methods return Dash components (not raw strings) to keep the UI safe.
+    All methods return Dash components, not raw strings.
     """
 
     def __init__(self, app_name: str, app_version: str, app_author: str) -> None:
@@ -36,16 +36,15 @@ class ModalTextBuilder:
         snapshot: Any | None = None,
         show_lan_local: bool = False,
     ) -> list[Any]:
-        """
-        Return modal body content for a menu action.
+        """Build modal body content for a menu action.
 
         Args:
-            action: Menu action id.
+            action: Menu action ID.
             snapshot: Latest model snapshot (dict) or None.
-            show_lan_local: Used only by the Unmapped view toggle.
+            show_lan_local: Unmapped view toggle state.
 
         Returns:
-            List of Dash components to be placed inside modal_body.
+            Dash components for the modal body.
         """
         if action == "menu_help":
             return self._render_help()
@@ -63,15 +62,14 @@ class ModalTextBuilder:
         return [self._h1("Details"), html.Pre(f"Menu selected: {label}")]
 
     def for_click(self, click_data: Any, ui_view: Any) -> html.Pre | None:
-        """
-        Build click detail content from Plotly clickData.
+        """Build click detail content from Plotly clickData.
 
         Args:
             click_data: Plotly clickData payload.
-            ui_view: Dash store content with "details" mapping.
+            ui_view: Dash store content with the "details" mapping.
 
         Returns:
-            html.Pre if valid click, otherwise None.
+            html.Pre for a valid click, otherwise None.
         """
         if not isinstance(click_data, dict):
             return None
@@ -107,11 +105,7 @@ class ModalTextBuilder:
 
     @staticmethod
     def _kv_table(rows: Iterable[tuple[str, str]]) -> html.Table:
-        """
-        Render a simple two-column key/value table.
-
-        Each value is wrapped in a span with tooltip = full value.
-        """
+        """Render a two-column key/value table with tooltips."""
         body: list[Any] = []
         for key, value in rows:
             v = "" if value is None else str(value)
@@ -123,14 +117,23 @@ class ModalTextBuilder:
                     ]
                 )
             )
-        return html.Table(className="mx-table mx-info-table", children=[html.Tbody(body)])
+        colgroup = html.Colgroup(
+            [
+                html.Col(style={"width": "180px"}),
+                html.Col(),
+            ]
+        )
+
+        return html.Table(
+            className="mx-table mx-info-table",
+            children=[colgroup, html.Tbody(body)],
+        )
 
     @staticmethod
     def _cell(text: str, title: str | None = None) -> html.Td:
-        """
-        Render a table cell with consistent truncation + tooltip behaviour.
+        """Render a table cell with truncation and a tooltip.
 
-        Tooltip defaults to the full text unless explicitly overridden.
+        Use the full value as the default tooltip.
         """
         value = text or ""
         tooltip = title if title is not None else value
@@ -151,10 +154,9 @@ class ModalTextBuilder:
     # ---------- Help ----------
 
     def _render_help(self) -> list[Any]:
-        """
-        Return Help content.
+        """Render Help content.
 
-        HELP_CONTENT is expected to start with H1. If not, add one.
+        Add an H1 when HELP_CONTENT does not start with one.
         """
         content = HELP_CONTENT
         items = content if isinstance(content, list) else [content]
@@ -167,36 +169,41 @@ class ModalTextBuilder:
     # ---------- About ----------
 
     def _render_about(self, snapshot: Any | None = None) -> list[Any]:
-        """
-        Render the About view.
+        """Render the About view.
 
-        This view must not trigger network calls. It reads only snapshot["app_info"]
-        which is prepared by TapMap.
+        Read snapshot["app_info"] only and avoid network calls.
         """
-        snap = snapshot if isinstance(snapshot, dict) else {}
-        info = snap.get("app_info")
-        app_info = info if isinstance(info, dict) else {}
+        app_info: dict[str, Any] = {}
+        if isinstance(snapshot, dict):
+            info = snapshot.get("app_info")
+            if isinstance(info, dict):
+                app_info = info
 
         poll_ms = app_info.get("poll_interval_ms")
         coord_precision = app_info.get("coord_precision")
         near_km = app_info.get("zoom_near_km")
 
         geoinfo_enabled = bool(app_info.get("geoinfo_enabled", False))
-        geo_data_dir = app_info.get("geo_data_dir")
+        geo_data_dir = (
+            app_info.get("geo_data_dir") if isinstance(app_info.get("geo_data_dir"), str) else ""
+        )
 
-        myloc_mode = app_info.get("myloc_mode") if isinstance(app_info.get("myloc_mode"), str) else "OFF"
+        myloc_mode = (
+            app_info.get("myloc_mode") if isinstance(app_info.get("myloc_mode"), str) else "OFF"
+        )
         my_location = app_info.get("my_location")
 
         public_ip_cached = app_info.get("public_ip_cached")
-        public_ip_cached = public_ip_cached if isinstance(public_ip_cached, str) and public_ip_cached else None
+        public_ip_cached = (
+            public_ip_cached if isinstance(public_ip_cached, str) and public_ip_cached else None
+        )
 
         auto_geo_cached = app_info.get("auto_geo_cached")
         auto_geo = auto_geo_cached if isinstance(auto_geo_cached, dict) else {}
 
         os_text = app_info.get("os") if isinstance(app_info.get("os"), str) else "-"
         py_text = app_info.get("python") if isinstance(app_info.get("python"), str) else "-"
-        psutil_text = app_info.get("psutil")
-        psutil_text = str(psutil_text) if psutil_text is not None else "-"
+        psutil_text = str(app_info.get("psutil")) if app_info.get("psutil") is not None else "-"
 
         tapmap_rows: list[tuple[str, str]] = [
             ("Name", self.app_name),
@@ -207,12 +214,17 @@ class ModalTextBuilder:
             ("Near distance", f"{near_km} km" if isinstance(near_km, (int, float)) else "-"),
         ]
 
+        geo_rows: list[tuple[str, str]] = [
+            ("Geolocation", "Enabled" if geoinfo_enabled else "Disabled"),
+            ("GeoIP data folder", geo_data_dir if geo_data_dir else "-"),
+        ]
 
-        geo_rows: list[tuple[str, str]] = [("Geolocation", "Enabled" if geoinfo_enabled else "Disabled")]
-        if isinstance(geo_data_dir, str) and geo_data_dir:
-            geo_rows.append(("GEO_DATA_DIR", geo_data_dir))
-
-        location_rows = self._build_location_rows(myloc_mode, my_location, public_ip_cached, auto_geo)
+        location_rows = self._build_location_rows(
+            myloc_mode,
+            my_location,
+            public_ip_cached,
+            auto_geo,
+        )
 
         runtime_rows: list[tuple[str, str]] = [
             ("OS", os_text),
@@ -222,24 +234,78 @@ class ModalTextBuilder:
 
         return [
             self._h1(f"About {self.app_name}"),
+            html.P(
+                "TapMap combines local socket inspection, IP geolocation, "
+                "and interactive map visualization."
+            ),
+            html.P(
+                "It uses psutil to read active network connections, "
+                "MaxMind GeoLite2 databases for geolocation, "
+                "and Dash with Plotly for map rendering."
+            ),
+            html.P("All processing is local. TapMap does not inspect traffic contents."),
             self._kv_table(tapmap_rows),
-            html.H2("Geo"),
+            html.H2("Geolocation"),
+            html.P(
+                "Geolocation is based on local MaxMind GeoLite2 .mmdb databases. "
+                "The databases are not included."
+            ),
             self._kv_table(geo_rows),
+            html.Div(
+                className="mx-path-row",
+                children=[
+                    html.Pre(geo_data_dir, className="mx-path-box") if geo_data_dir else None,
+                    html.Button(
+                        "Open data folder",
+                        id="btn_open_data_about",
+                        n_clicks=0,
+                        className="mx-btn mx-btn--primary mx-btn--nowrap",
+                        type="button",
+                    ),
+                    html.Button(
+                        "Recheck GeoIP databases",
+                        id="btn_check_databases_about",
+                        n_clicks=0,
+                        className="mx-btn mx-btn--primary mx-btn--nowrap",
+                        type="button",
+                    ),
+                ],
+            ),
             html.H2("Location"),
             self._kv_table(location_rows),
             html.H2("Runtime"),
             self._kv_table(runtime_rows),
-
-            html.H2("Support"),
+            html.H2("Project"),
             html.P("TapMap is free and open source."),
-            html.Ul([
-                html.Li(html.A("Star the project on GitHub", href="https://github.com/olalie/", target="_blank")),
-                html.Li(html.A("Buy Me a Coffee", href="https://www.buymeacoffee.com/olalie", target="_blank")),
-                html.Li(html.A("PayPal donation", href="https://www.paypal.com/donate/?hosted_button_id=ELLXBK9BY8EDU", target="_blank")),
-            ]),
+            html.Ul(
+                [
+                    html.Li(
+                        html.A(
+                            "Project page on GitHub",
+                            href="https://github.com/olalie/",
+                            target="_blank",
+                            rel="noopener noreferrer",
+                        )
+                    ),
+                    html.Li(
+                        html.A(
+                            "MaxMind GeoLite2 project",
+                            href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data",
+                            target="_blank",
+                            rel="noopener noreferrer",
+                        )
+                    ),
+                    html.Li(
+                        html.A(
+                            "Buy Me a Coffee",
+                            href="https://www.buymeacoffee.com/olalie",
+                            target="_blank",
+                            rel="noopener noreferrer",
+                        )
+                    ),
+                ]
+            ),
         ]
-
-
 
     @classmethod
     def _build_location_rows(
@@ -249,14 +315,13 @@ class ModalTextBuilder:
         public_ip_cached: str | None,
         auto_geo: dict[str, Any],
     ) -> list[tuple[str, str]]:
-        """
-        Build the Location section rows based on MY_LOCATION mode.
+        """Build Location section rows for the MY_LOCATION mode.
 
         Modes:
-            OFF: show local marker disabled
-            FIXED: show fixed lon/lat
-            AUTO: show cached public IP + geo place/coord
-            AUTO (NO GEO): show cached public IP + "not available"
+            OFF: local marker disabled
+            FIXED: fixed lon/lat
+            AUTO: cached public IP and geo place and coordinates
+            AUTO (NO GEO): cached public IP and unavailable geo data
         """
         if myloc_mode == "OFF":
             return [("MY_LOCATION", "none (local marker hidden)")]
@@ -267,7 +332,6 @@ class ModalTextBuilder:
                 return [("MY_LOCATION", cls._fmt_coord(lon, lat))]
             return [("MY_LOCATION", "fixed (invalid value)")]
 
-        # AUTO variants
         rows: list[tuple[str, str]] = [("MY_LOCATION", "auto")]
         rows.append(("Public IP", public_ip_cached or "-"))
 
@@ -278,7 +342,6 @@ class ModalTextBuilder:
             rows.append(("AUTO coordinate", coord))
             return rows
 
-        # AUTO (NO GEO)
         rows.append(("AUTO geo", "not available"))
         return rows
 
@@ -323,8 +386,7 @@ class ModalTextBuilder:
 
     @staticmethod
     def _strip_port(addr: str) -> str:
-        """
-        Return address without trailing ':port'.
+        """Strip a trailing ':port' from an address.
 
         Examples:
             '127.0.0.1:8050' -> '127.0.0.1'
@@ -368,9 +430,7 @@ class ModalTextBuilder:
 
     @classmethod
     def _render_open_ports(cls, snapshot: Any | None) -> list[Any]:
-        """
-        Render the Open ports view.
-        """
+        """Render the Open ports view."""
         snap = snapshot if isinstance(snapshot, dict) else {}
         rows = snap.get("open_ports")
         rows_list = rows if isinstance(rows, list) else []
@@ -381,7 +441,7 @@ class ModalTextBuilder:
         header = [cls._h1("Open ports (TCP LISTEN and UDP bound)")]
 
         if not cleaned:
-            return header + [html.Pre("(no open ports found)")]
+            return [*header, html.Pre("(no open ports found)")]
 
         body_rows: list[Any] = []
         for r in cleaned:
@@ -417,9 +477,25 @@ class ModalTextBuilder:
                 )
             )
 
+        # Column widths moved from CSS nth-child to Colgroup.
+        # Previous widths (sum is approx 100%):
+        # 1 6.7, 2 6.7, 3 6.7, 4 26.7, 5 20, 6 6.7, 7 26.7
+        colgroup = html.Colgroup(
+            [
+                html.Col(style={"width": "8.0%"}),  # Scope
+                html.Col(style={"width": "8.0%"}),  # Proto
+                html.Col(style={"width": "8.0%"}),  # Port
+                html.Col(style={"width": "24.0%"}),  # Local IP
+                html.Col(style={"width": "20.0%"}),  # Port service
+                html.Col(style={"width": "8.0%"}),  # PID
+                html.Col(style={"width": "24.0%"}),  # Process
+            ]
+        )
+
         table = html.Table(
             className="mx-table mx-open-ports",
             children=[
+                colgroup,
                 html.Thead(
                     html.Tr(
                         [
@@ -436,14 +512,13 @@ class ModalTextBuilder:
                 html.Tbody(body_rows),
             ],
         )
-        return header + [table]
+        return [*header, table]
 
     # ---------- Unmapped endpoints ----------
 
     @staticmethod
     def _remote_scope(ip: str | None) -> str:
-        """
-        Classify a remote IP for display in the Unmapped table.
+        """Classify a remote IP for display in the Unmapped table.
 
         LOCAL: loopback
         LAN: private or link-local
@@ -466,19 +541,12 @@ class ModalTextBuilder:
 
         return "PUBLIC"
 
-    @staticmethod
-    def _has_geo(row: dict[str, Any]) -> bool:
-        lat = row.get("lat")
-        lon = row.get("lon")
-        return isinstance(lat, (int, float)) and isinstance(lon, (int, float))
-
     @classmethod
     def _render_unmapped(cls, snapshot: Any | None, *, show_lan_local: bool) -> list[Any]:
-        """
-        Render Unmapped endpoints.
+        """Render unmapped endpoints.
 
-        Unmapped means: ESTABLISHED TCP endpoints that are not shown on the map
-        because geolocation is missing (no lat/lon).
+        Unmapped endpoints are established TCP endpoints excluded from the map
+        due to missing geolocation (no lat/lon).
         Default: PUBLIC only. Toggle can include LAN and LOCAL.
         """
         snap = snapshot if isinstance(snapshot, dict) else {}
@@ -505,8 +573,6 @@ class ModalTextBuilder:
 
             if scope in {"LAN", "LOCAL"} and show_lan_local:
                 filtered.append(r)
-
-
 
         toggle = dcc.Checklist(
             id="toggle_unmapped_lan_local",
@@ -573,10 +639,21 @@ class ModalTextBuilder:
                     ]
                 )
             )
+        colgroup = html.Colgroup(
+            [
+                html.Col(style={"width": "8%"}),  # Scope
+                html.Col(style={"width": "32%"}),  # Remote IP
+                html.Col(style={"width": "8%"}),  # Port
+                html.Col(style={"width": "16%"}),  # Port service
+                html.Col(style={"width": "8%"}),  # PID
+                html.Col(style={"width": "28%"}),  # Process
+            ]
+        )
 
         table = html.Table(
             className="mx-table mx-unmapped",
             children=[
+                colgroup,
                 html.Thead(
                     html.Tr(
                         [
@@ -595,31 +672,58 @@ class ModalTextBuilder:
 
         return [header, table]
 
-    def missing_geo_db(self) -> list[Any]:
-        """
-        Render the missing GeoLite2 database message.
-
-        This is shown at startup when geolocation is disabled because
-        required MaxMind mmdb files are not found.
-        """
+    def missing_geo_db(self, geo_data_dir: str) -> list[Any]:
+        """Render the Missing GeoIP databases view."""
         return [
-            self._h1("Missing databases"),
-            html.P("TapMap can run without geolocation, but GeoIP lookups will be disabled."),
+            self._h1("Missing GeoIP databases"),
             html.P(
-                "To enable geolocation, download the GeoLite2 databases and place them "
-                "in the data folder next to TapMap.exe:"
+                [
+                    "TapMap can run without geolocation, but GeoIP lookups will be disabled. ",
+                    "To enable geolocation, download the GeoLite2 databases and place them in "
+                    "this folder:",
+                ]
             ),
+            html.Div(
+                className="mx-path-row",
+                children=[
+                    html.Pre(geo_data_dir, className="mx-path-box"),
+                    html.Button(
+                        "Open data folder",
+                        id="btn_open_data",
+                        n_clicks=0,
+                        className="mx-btn mx-btn--primary mx-btn--nowrap",
+                        type="button",
+                    ),
+                    html.Button(
+                        "Recheck databases",
+                        id="btn_check_databases",
+                        n_clicks=0,
+                        className="mx-btn mx-btn--primary mx-btn--nowrap",
+                        type="button",
+                    ),
+                ],
+            ),
+            html.P("Required files:"),
             html.Ul(
                 [
                     html.Li("GeoLite2-ASN.mmdb"),
                     html.Li("GeoLite2-City.mmdb"),
                 ]
             ),
+            html.H2("Steps"),
+            html.Ol(
+                [
+                    html.Li("Open the data folder."),
+                    html.Li("Copy the GeoLite2 .mmdb files into the folder."),
+                    html.Li("Click Recheck GeoIP databases in the app."),
+                ]
+            ),
             html.H2("Download"),
             html.P(
                 [
-                    "Download is free from MaxMind, but requires an account and acceptance "
-                    "of license terms. Create a free account and download the databases here: ",
+                    "Download is free from MaxMind, but requires an account and "
+                    "acceptance of license terms. ",
+                    "Create a free account and download the databases here: ",
                     html.A(
                         "MaxMind GeoLite2 download page",
                         href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data",
@@ -629,21 +733,21 @@ class ModalTextBuilder:
                     ".",
                 ]
             ),
-            html.P("Update recommendation: download updated databases regularly (for example monthly)."),
-            html.P("Restart TapMap after the files are placed in the data folder."),
+            html.P(
+                "Update recommendation: download updated databases regularly (for example monthly)."
+            ),
         ]
 
     # ---------- Click helpers ----------
 
     @staticmethod
     def first_idx(customdata: Any) -> int | None:
-        """
-        Extract endpoint index from Plotly customdata.
+        """Extract an endpoint index from Plotly customdata.
 
-        Supports:
+        Supported forms:
             - dict with keys {"kind", "idx"}
-            - plain integer
-            - nested list/tuple structures
+            - integer
+            - nested list or tuple structures
         """
         if isinstance(customdata, dict):
             if customdata.get("kind") in {"target", "line"}:
