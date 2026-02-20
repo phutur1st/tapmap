@@ -36,109 +36,50 @@ jobs:
         run: |
           python -m PyInstaller --noconfirm --clean tapmap.spec
 
-      # Copy assets you still need next to the built app/bundle.
-      # Assumes you keep these in repo at: assets/styles.css and assets/keys.js
       - name: Copy required assets into dist
+        shell: bash
         run: |
           python - << 'PY'
           from pathlib import Path
           import shutil
 
-          src_assets_dir = Path("assets")
           dist_dir = Path("dist") / "tapmap"
           dist_dir.mkdir(parents=True, exist_ok=True)
 
+          assets_dir = Path("assets")
           wanted = [
-              ("styles.css", src_assets_dir / "styles.css"),
-              ("keys.js", src_assets_dir / "keys.js"),
+              ("styles.css", assets_dir / "styles.css"),
+              ("keys.js", assets_dir / "keys.js"),
           ]
 
-          copied = []
           for name, src in wanted:
-              if src.exists():
-                  dst = dist_dir / name
-                  shutil.copy2(src, dst)
-                  copied.append(str(dst))
-              else:
-                  print(f"NOTE: Missing asset in repo: {src}")
+              if not src.exists():
+                  raise FileNotFoundError(f"Missing required asset: {src}")
+              shutil.copy2(src, dist_dir / name)
 
-          print("Copied:", copied)
+          print("OK: assets copied to dist/tapmap")
           PY
-        shell: bash
 
-      # macOS: build a .pkg installer (unsigned by default)
       - name: Build macOS pkg
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           TAG="${GITHUB_REF_NAME}"
 
-          # Package the entire dist/tapmap directory to /Applications/TapMap
           pkgbuild \
             --root "dist/tapmap" \
             --install-location "/Applications/TapMap" \
             "tapmap-component.pkg"
 
-          # If you do not sign, omit --sign (productbuild will create an unsigned pkg)
           productbuild \
             --package "tapmap-component.pkg" \
             "tapmap-${TAG}-macos.pkg"
 
           rm -f "tapmap-component.pkg"
 
-      # Optional: Sign pkg (requires Apple Developer Program + Developer ID Installer cert)
-      - name: Sign macOS pkg (optional)
-        if: runner.os == 'macOS' && env.MACOS_INSTALLER_IDENTITY != '' && secrets.MACOS_CERT_P12 != '' && secrets.MACOS_CERT_PASSWORD != ''
-        env:
-          MACOS_INSTALLER_IDENTITY: ${{ secrets.MACOS_INSTALLER_IDENTITY }} # e.g. "Developer ID Installer: Your Name (TEAMID)"
-          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}                     # base64 of .p12
-          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}           # password for .p12
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-
-          echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
-
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/productbuild -T /usr/bin/pkgbuild -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
-
-          # Rebuild signed pkg
-          pkgbuild \
-            --root "dist/tapmap" \
-            --install-location "/Applications/TapMap" \
-            "tapmap-component.pkg"
-
-          productbuild \
-            --sign "$MACOS_INSTALLER_IDENTITY" \
-            --timestamp \
-            --package "tapmap-component.pkg" \
-            "tapmap-${TAG}-macos.pkg"
-
-          rm -f cert.p12 "tapmap-component.pkg"
-
-      # Optional: Notarize pkg (recommended for smooth Gatekeeper experience)
-      # Requires Apple ID + Team ID + app-specific password (or App Store Connect API key)
-      - name: Notarize macOS pkg (optional)
-        if: runner.os == 'macOS' && secrets.MACOS_NOTARY_APPLE_ID != '' && secrets.MACOS_NOTARY_TEAM_ID != '' && secrets.MACOS_NOTARY_PASSWORD != ''
-        env:
-          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
-          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
-          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
-        run: |
-          TAG="${GITHUB_REF_NAME}"
-          xcrun notarytool submit "tapmap-${TAG}-macos.pkg" \
-            --apple-id "$MACOS_NOTARY_APPLE_ID" \
-            --team-id "$MACOS_NOTARY_TEAM_ID" \
-            --password "$MACOS_NOTARY_PASSWORD" \
-            --wait
-
-          # Staple ticket to the pkg
-          xcrun stapler staple "tapmap-${TAG}-macos.pkg"
-
-      # Windows/Linux: zip as before
       - name: Create release zip (Windows/Linux)
         if: runner.os != 'macOS'
+        shell: bash
         run: |
           python - << 'PY'
           import os
@@ -162,17 +103,17 @@ jobs:
 
           print(zip_name)
           PY
-        shell: bash
 
-      # Checksums
       - name: Create SHA256 (macOS pkg)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           FILE="tapmap-${GITHUB_REF_NAME}-macos.pkg"
           shasum -a 256 "$FILE" > "$FILE.sha256"
 
       - name: Create SHA256 (Linux)
         if: runner.os == 'Linux'
+        shell: bash
         run: |
           FILE="tapmap-${GITHUB_REF_NAME}-linux.zip"
           shasum -a 256 "$FILE" > "$FILE.sha256"
