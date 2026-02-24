@@ -35,6 +35,7 @@ class ModalTextBuilder:
         *,
         snapshot: Any | None = None,
         show_lan_local: bool = False,
+        show_system: bool = False,
     ) -> list[Any]:
         """Build modal body content for a menu action.
 
@@ -42,6 +43,7 @@ class ModalTextBuilder:
             action: Menu action ID.
             snapshot: Latest model snapshot (dict) or None.
             show_lan_local: Unmapped view toggle state.
+            show_system: Open ports view toggle state.
 
         Returns:
             Dash components for the modal body.
@@ -50,7 +52,7 @@ class ModalTextBuilder:
             return self._render_help()
 
         if action == "menu_open_ports":
-            return self._render_open_ports(snapshot)
+            return self._render_open_ports(snapshot, show_system=show_system)
 
         if action == "menu_unmapped":
             return self._render_unmapped(snapshot, show_lan_local=show_lan_local)
@@ -424,28 +426,80 @@ class ModalTextBuilder:
         return ip
 
     @classmethod
-    def _open_ports_sort_key(cls, row: dict[str, Any]) -> tuple[int, int, int, str, str]:
-        scope = cls._safe_str(row.get("scope"))
+    def _open_ports_sort_key(cls, row: dict[str, Any]) -> tuple[int, int, int, str, int]:
+        """Return sort key for Open Ports rows."""
+        scope = cls._safe_str(row.get("scope")).upper()
+        proto = cls._safe_str(row.get("proto")).upper()
         local_address = cls._safe_str(row.get("local_address"))
+
         port = cls._port_from_local(local_address)
-        proto = cls._safe_str(row.get("proto"))
 
-        service = cls._safe_str(row.get("service"))
-        process_label = cls._safe_str(row.get("process_label") or row.get("process_name"))
+        process_name = cls._safe_str(
+            row.get("process_label") or row.get("process_name")
+        ).lower()
 
-        return (cls._scope_rank(scope), port, cls._proto_rank(proto), service, process_label)
+        pid = cls._safe_int(row.get("pid"))
+
+        scope_order = {
+            "PUBLIC": 0,
+            "LAN": 1,
+            "LOCAL": 2,
+        }.get(scope, 3)
+
+        proto_order = 0 if proto == "TCP" else 1
+
+        return (scope_order, proto_order, port, process_name, pid)
+    
+    @staticmethod
+    def _is_system_process(process_name: str) -> bool:
+        """Return True if process is a core Windows system service."""
+        hidden = {
+            "system",
+            "svchost.exe",
+            "lsass.exe",
+            "wininit.exe",
+            "services.exe",
+            "spoolsv.exe",
+        }
+        return process_name.lower() in hidden
 
     @classmethod
-    def _render_open_ports(cls, snapshot: Any | None) -> list[Any]:
-        """Render the Open ports view."""
+    def _render_open_ports(
+        cls,
+        snapshot: Any | None,
+        *,
+        show_system: bool,
+    ) -> list[Any]:
+        """Build modal content for the Open Ports view."""
         snap = snapshot if isinstance(snapshot, dict) else {}
         rows = snap.get("open_ports")
         rows_list = rows if isinstance(rows, list) else []
-
         cleaned: list[dict[str, Any]] = [r for r in rows_list if isinstance(r, dict)]
+
+        if not show_system:
+            filtered: list[dict[str, Any]] = []
+            for r in cleaned:
+                process_name = cls._safe_str(r.get("process_name") or r.get("process_label"))
+                if cls._is_system_process(process_name):
+                    continue
+                filtered.append(r)
+            cleaned = filtered
+
         cleaned.sort(key=cls._open_ports_sort_key)
 
-        header = [cls._h1("Open ports (TCP LISTEN and UDP bound)")]
+        toggle = dcc.Checklist(
+            id="toggle_open_ports_system",
+            options=[{"label": "Show system processes", "value": "on"}],
+            value=(["on"] if show_system else []),
+            className="mx-title-toggle",
+        )
+
+        header = [
+            html.H1(
+                children=[html.Span("Open ports (TCP LISTEN and UDP bound)"), toggle],
+                className="mx-h1-with-toggle",
+            )
+        ]
 
         if not cleaned:
             return [*header, html.Pre("(no open ports found)")]
@@ -484,17 +538,14 @@ class ModalTextBuilder:
                 )
             )
 
-        # Column widths moved from CSS nth-child to Colgroup.
-        # Previous widths (sum is approx 100%):
-        # 1 6.7, 2 6.7, 3 6.7, 4 26.7, 5 20, 6 6.7, 7 26.7
         colgroup = html.Colgroup(
             [
-                html.Col(style={"width": "8.0%"}),  # Scope
-                html.Col(style={"width": "8.0%"}),  # Proto
-                html.Col(style={"width": "8.0%"}),  # Port
+                html.Col(style={"width": "8.0%"}),   # Scope
+                html.Col(style={"width": "8.0%"}),   # Proto
+                html.Col(style={"width": "8.0%"}),   # Port
                 html.Col(style={"width": "24.0%"}),  # Local IP
                 html.Col(style={"width": "20.0%"}),  # Port service
-                html.Col(style={"width": "8.0%"}),  # PID
+                html.Col(style={"width": "8.0%"}),   # PID
                 html.Col(style={"width": "24.0%"}),  # Process
             ]
         )
