@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ipaddress
 from collections.abc import Iterable
 from typing import Any
 
@@ -49,7 +48,7 @@ class ModalTextBuilder:
         """
         if action == "menu_unmapped":
             return self._render_unmapped(snapshot)
-        
+
         if action == "menu_lan_local":
             return self._render_lan_local(snapshot)
 
@@ -154,6 +153,11 @@ class ModalTextBuilder:
             return int(value)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _scope_rank(scope: str) -> int:
+        order = {"PUBLIC": 0, "LAN": 1, "LOCAL": 2}
+        return order.get(scope.upper(), 9)
 
     # ---------- Help ----------
 
@@ -375,20 +379,6 @@ class ModalTextBuilder:
     # ---------- Open ports ----------
 
     @staticmethod
-    def _scope_rank(scope: str) -> int:
-        order = {"PUBLIC": 0, "LAN": 1, "LOCAL": 2}
-        return order.get(scope.upper(), 9)
-
-    @staticmethod
-    def _proto_rank(proto: str) -> int:
-        p = proto.lower()
-        if p == "tcp":
-            return 0
-        if p == "udp":
-            return 1
-        return 9
-
-    @staticmethod
     def _port_from_local(addr: str) -> int:
         try:
             return int(addr.rsplit(":", 1)[-1])
@@ -430,30 +420,26 @@ class ModalTextBuilder:
     @classmethod
     def _open_ports_sort_key(cls, row: dict[str, Any]) -> tuple[int, int, int, str, int]:
         """Return sort key for Open Ports rows."""
-        scope = cls._safe_str(row.get("scope")).upper()
+        bind_scope = cls._safe_str(row.get("bind_scope")).upper()
         proto = cls._safe_str(row.get("proto")).upper()
         local_address = cls._safe_str(row.get("local_address"))
 
         port = cls._port_from_local(local_address)
-        # Put invalid ports at the end
         port = port if port >= 0 else 65536
 
-        process_name = cls._safe_str(
-            row.get("process_label") or row.get("process_name")
-        ).lower()
-
+        process_name = cls._safe_str(row.get("process_label") or row.get("process_name")).lower()
         pid = cls._safe_int(row.get("pid"))
 
         scope_order = {
             "PUBLIC": 0,
             "LAN": 1,
             "LOCAL": 2,
-        }.get(scope, 3)
+        }.get(bind_scope, 3)
 
         proto_order = 0 if proto == "TCP" else 1
 
         return (scope_order, proto_order, port, process_name, pid)
-    
+
     @staticmethod
     def _is_system_process(process_name: str) -> bool:
         """Return True if process is a core Windows system service."""
@@ -531,7 +517,7 @@ class ModalTextBuilder:
             body_rows.append(
                 html.Tr(
                     [
-                        cls._cell(cls._safe_str(r.get("scope"))),
+                        cls._cell(cls._safe_str(r.get("bind_scope"))),
                         cls._cell(cls._safe_str(r.get("proto"))),
                         cls._cell(str(cls._port_from_local(full_local))),
                         cls._cell(ip_display, title=full_local),
@@ -544,7 +530,7 @@ class ModalTextBuilder:
 
         colgroup = html.Colgroup(
             [
-                html.Col(style={"width": "8.0%"}),   # Scope
+                html.Col(style={"width": "8.0%"}),   # Bind scope
                 html.Col(style={"width": "8.0%"}),   # Proto
                 html.Col(style={"width": "8.0%"}),   # Port
                 html.Col(style={"width": "24.0%"}),  # Local IP
@@ -561,7 +547,7 @@ class ModalTextBuilder:
                 html.Thead(
                     html.Tr(
                         [
-                            html.Th("Scope"),
+                            html.Th("Bind scope"),
                             html.Th("Proto"),
                             html.Th("Port"),
                             html.Th("Local IP"),
@@ -576,38 +562,12 @@ class ModalTextBuilder:
         )
         return [*header, table]
 
-    # ---------- Unmapped services ----------
-
-    @staticmethod
-    def _remote_scope(ip: str | None) -> str:
-        """Classify a remote IP for display in the Unmapped table.
-
-        LOCAL: loopback
-        LAN: private or link-local
-        PUBLIC: everything else
-        UNKNOWN: missing/invalid
-        """
-        if not ip:
-            return "UNKNOWN"
-
-        try:
-            addr = ipaddress.ip_address(ip)
-        except ValueError:
-            return "UNKNOWN"
-
-        if addr.is_loopback:
-            return "LOCAL"
-
-        if addr.is_private or addr.is_link_local:
-            return "LAN"
-
-        return "PUBLIC"
-
+    # Unmapped services
     @classmethod
     def _render_unmapped(cls, snapshot: Any | None) -> list[Any]:
         """Render unmapped services.
 
-        Render established TCP services with PUBLIC remote IPs and missing geolocation.
+        Render established TCP services with PUBLIC service_scope and missing geolocation.
         """
         snap = snapshot if isinstance(snapshot, dict) else {}
         items = snap.get("cache_items")
@@ -620,13 +580,10 @@ class ModalTextBuilder:
             lon = r.get("lon")
             return isinstance(lat, (int, float)) and isinstance(lon, (int, float))
 
-        # 1) Filter to "unmapped" candidates (PUBLIC only)
         filtered: list[dict[str, Any]] = []
         for r in cleaned:
-            ip = r.get("ip")
-            scope = cls._remote_scope(ip)
+            scope = cls._safe_str(r.get("service_scope")) or "UNKNOWN"
             geo_ok = has_geo(r)
-
             if scope == "PUBLIC" and not geo_ok:
                 filtered.append(r)
 
@@ -655,13 +612,11 @@ class ModalTextBuilder:
             hint = cls._safe_str(row.get("service_hint")) or None
             return service, hint
 
-        # 2) Aggregate identical services and count sockets
-        #    Key: (scope, ip, port, pid, process_label)
         agg: dict[tuple[str, str, int, int, str], dict[str, Any]] = {}
         for r in filtered:
             ip = cls._safe_str(r.get("ip"))
             port = cls._safe_int(r.get("port"), default=-1)
-            scope = cls._remote_scope(ip)
+            scope = cls._safe_str(r.get("service_scope")) or "UNKNOWN"
 
             pid_val = r.get("pid")
             pid = cls._safe_int(pid_val) if pid_val is not None else -1
@@ -685,7 +640,6 @@ class ModalTextBuilder:
                 }
             else:
                 entry["count"] = int(entry.get("count") or 0) + 1
-                # Keep a non-empty tooltip if one appears later
                 if entry.get("process_tip") in {None, ""} and proc_tip:
                     entry["process_tip"] = proc_tip
                 if entry.get("service_tip") in {None, ""} and svc_tip:
@@ -693,7 +647,6 @@ class ModalTextBuilder:
 
         aggregated = list(agg.values())
 
-        # 3) Sort "signal first"
         interesting_ports = {443, 53, 80, 3478, 22, 3389}
 
         def sort_key(row: dict[str, Any]) -> tuple[int, int, int, str, str]:
@@ -704,7 +657,6 @@ class ModalTextBuilder:
             count = cls._safe_int(row.get("count"), default=0)
 
             port_rank = 0 if port in interesting_ports else 1
-            # scope_rank: PUBLIC -> LAN -> LOCAL
             return (cls._scope_rank(scope), port_rank, -count, proc.lower(), ip)
 
         body_rows: list[Any] = []
@@ -794,8 +746,7 @@ class ModalTextBuilder:
 
         filtered: list[dict[str, Any]] = []
         for r in cleaned:
-            ip = r.get("ip")
-            scope = cls._remote_scope(ip)
+            scope = cls._safe_str(r.get("service_scope")) or "UNKNOWN"
             if scope in {"LAN", "LOCAL"} and is_established_tcp(r):
                 filtered.append(r)
 
@@ -824,13 +775,11 @@ class ModalTextBuilder:
             hint = cls._safe_str(row.get("service_hint")) or None
             return service, hint
 
-        # Aggregate identical services and count sockets
-        # Key: (scope, ip, port, pid, process_label)
         agg: dict[tuple[str, str, int, int, str], dict[str, Any]] = {}
         for r in filtered:
             ip = cls._safe_str(r.get("ip"))
             port = cls._safe_int(r.get("port"), default=-1)
-            scope = cls._remote_scope(ip)
+            scope = cls._safe_str(r.get("service_scope")) or "UNKNOWN"
 
             pid_val = r.get("pid")
             pid = cls._safe_int(pid_val) if pid_val is not None else -1
