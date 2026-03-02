@@ -19,6 +19,8 @@ from model.netinfo import NetInfo
 from model.public_ip import iter_public_ip_candidates
 from runtime import AppMeta, RuntimeContext, build_runtime
 from state.keyboard import build_key_action
+from state.menu import compute_menu_open_state
+from state.open_ports_prefs import set_show_system_pref
 from state.status_line import render_status_text
 from ui.cache_view import CacheViewBuilder
 from ui.map_view import MapUI
@@ -676,23 +678,17 @@ class TapMap:
         ) -> Any:
             trigger = ctx.triggered_id
 
-            if trigger == "btn_menu":
-                return not bool(menu_open)
-            if trigger == "menu_overlay":
-                return False
+            next_state = compute_menu_open_state(
+                trigger=trigger,
+                menu_open=menu_open,
+                key_action=key_action,
+                menu_screens=self.MENU_SCREENS,
+                menu_commands=self.MENU_COMMANDS,
+            )
 
-            if (
-                trigger == "key_action"
-                and isinstance(key_action, dict)
-                and key_action.get("action") == "escape"
-                and bool(menu_open)
-            ):
-                return False
-
-            if trigger in (self.MENU_SCREENS | self.MENU_COMMANDS):
-                return False
-
-            return no_update
+            if next_state is None:
+                return no_update
+            return next_state
 
         @self.app.callback(
             Output("modal_state", "data"),
@@ -920,10 +916,8 @@ class TapMap:
             State("open_ports_prefs", "data"),
             prevent_initial_call=True,
         )
-        def open_ports_toggle(toggle_value: Any, prefs_data: Any):
-            prefs = prefs_data if isinstance(prefs_data, dict) else {}
-            prefs["show_system"] = isinstance(toggle_value, list) and "on" in toggle_value
-            return prefs
+        def open_ports_toggle(toggle_value: Any, prefs_data: Any) -> dict[str, Any]:
+            return set_show_system_pref(toggle_value=toggle_value, prefs_data=prefs_data)
 
     def run(self) -> None:
         """Start the Dash server and launch the local UI."""
