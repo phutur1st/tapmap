@@ -277,58 +277,37 @@ class ModalTextBuilder:
 
         return [*header, table]
 
-    # Unmapped services
+    # Helpers for unmapped and LAN/LOCAL services views
+    @staticmethod
+    def _process_text(row: dict[str, Any]) -> tuple[str, str | None]:
+        """Return process label and tooltip."""
+        label = safe_str(row.get("process_name"))
+        if not label:
+            label = safe_str(row.get("process_status")) or "Unavailable"
+
+        exe = row.get("exe")
+        if isinstance(exe, str) and exe.strip():
+            return label, exe.strip()
+
+        status = row.get("process_status")
+        if isinstance(status, str) and status.strip():
+            return label, status.strip()
+
+        return label, None
+
+    @staticmethod
+    def _service_text(row: dict[str, Any]) -> tuple[str, str | None]:
+        """Return service label and tooltip."""
+        service = safe_str(row.get("service")) or "Unknown"
+        hint = safe_str(row.get("service_hint")) or None
+        return service, hint
+
     @classmethod
-    def _render_unmapped(cls, snapshot: Any | None) -> list[Any]:
-        """Render unmapped services.
-
-        Render established TCP services with PUBLIC service_scope and missing geolocation.
-        """
-        snap = snapshot if isinstance(snapshot, dict) else {}
-        items = snap.get("cache_items")
-        rows = items if isinstance(items, list) else []
-
-        cleaned: list[dict[str, Any]] = [r for r in rows if isinstance(r, dict)]
-
-        def has_geo(r: dict[str, Any]) -> bool:
-            lat = r.get("lat")
-            lon = r.get("lon")
-            return isinstance(lat, (int, float)) and isinstance(lon, (int, float))
-
-        filtered: list[dict[str, Any]] = []
-        for r in cleaned:
-            scope = safe_str(r.get("service_scope")) or "UNKNOWN"
-            geo_ok = has_geo(r)
-            if scope == "PUBLIC" and not geo_ok:
-                filtered.append(r)
-
-        header = html.H1("Unmapped public services (missing geolocation)", className="mx-h1")
-
-        if not filtered:
-            return [header, html.Pre("(no unmapped public services)")]
-
-        def process_text(row: dict[str, Any]) -> tuple[str, str | None]:
-            label = safe_str(row.get("process_name"))
-            if not label:
-                label = safe_str(row.get("process_status")) or "Unavailable"
-
-            exe = row.get("exe")
-            if isinstance(exe, str) and exe.strip():
-                return label, exe.strip()
-
-            status = row.get("process_status")
-            if isinstance(status, str) and status.strip():
-                return label, status.strip()
-
-            return label, None
-
-        def service_text(row: dict[str, Any]) -> tuple[str, str | None]:
-            service = safe_str(row.get("service")) or "Unknown"
-            hint = safe_str(row.get("service_hint")) or None
-            return service, hint
-
+    def _aggregate_service_rows(cls, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Aggregate service rows by scope, ip, port, pid and process."""
         agg: dict[tuple[str, str, int, int, str], dict[str, Any]] = {}
-        for r in filtered:
+
+        for r in rows:
             ip = safe_str(r.get("ip"))
             port = safe_int(r.get("port"), default=-1)
             scope = safe_str(r.get("service_scope")) or "UNKNOWN"
@@ -336,11 +315,12 @@ class ModalTextBuilder:
             pid_val = r.get("pid")
             pid = safe_int(pid_val) if pid_val is not None else -1
 
-            proc_label, proc_tip = process_text(r)
-            svc_val, svc_tip = service_text(r)
+            proc_label, proc_tip = cls._process_text(r)
+            svc_val, svc_tip = cls._service_text(r)
 
             key = (scope, ip, port, pid, proc_label)
             entry = agg.get(key)
+
             if entry is None:
                 agg[key] = {
                     "scope": scope,
@@ -360,169 +340,28 @@ class ModalTextBuilder:
                 if entry.get("service_tip") in {None, ""} and svc_tip:
                     entry["service_tip"] = svc_tip
 
-        aggregated = list(agg.values())
+        return list(agg.values())
 
+    @staticmethod
+    def _service_sort_key(row: dict[str, Any]) -> tuple[int, int, int, str, str]:
+        """Return sort key for aggregated service rows."""
         interesting_ports = {443, 53, 80, 3478, 22, 3389}
 
-        def sort_key(row: dict[str, Any]) -> tuple[int, int, int, str, str]:
-            scope = safe_str(row.get("scope"))
-            port = safe_int(row.get("port"), default=-1)
-            proc = safe_str(row.get("process"))
-            ip = safe_str(row.get("ip"))
-            count = safe_int(row.get("count"), default=0)
+        scope = safe_str(row.get("scope"))
+        port = safe_int(row.get("port"), default=-1)
+        proc = safe_str(row.get("process"))
+        ip = safe_str(row.get("ip"))
+        count = safe_int(row.get("count"), default=0)
 
-            port_rank = 0 if port in interesting_ports else 1
-            return (scope_rank(scope), port_rank, -count, proc.lower(), ip)
-
-        body_rows: list[Any] = []
-        for row in sorted(aggregated, key=sort_key):
-            scope = safe_str(row.get("scope"))
-            ip = safe_str(row.get("ip"))
-            port = safe_int(row.get("port"), default=-1)
-
-            service = safe_str(row.get("service")) or "Unknown"
-            service_tip = row.get("service_tip")
-            service_tip = safe_str(service_tip) or None
-
-            pid_val = row.get("pid")
-            pid_txt = str(safe_int(pid_val)) if pid_val is not None else ""
-
-            proc = safe_str(row.get("process"))
-            proc_tip = row.get("process_tip")
-            proc_tip = safe_str(proc_tip) or None
-
-            count = safe_int(row.get("count"), default=1)
-
-            body_rows.append(
-                html.Tr(
-                    [
-                        cell(scope),
-                        cell(ip or "-"),
-                        cell(str(port) if port > 0 else "-"),
-                        cell(service, title=service_tip),
-                        cell(str(count)),
-                        cell(pid_txt),
-                        cell(proc, title=proc_tip),
-                    ]
-                )
-            )
-
-        columns = [
-            ColumnSpec("Scope", "8%"),
-            ColumnSpec("Remote IP", "28%"),
-            ColumnSpec("Port", "8%"),
-            ColumnSpec("Port service", "16%"),
-            ColumnSpec("Count", "8%"),
-            ColumnSpec("PID", "8%"),
-            ColumnSpec("Process", "24%"),
-        ]
-
-        table = build_table(
-            class_name="mx-table mx-unmapped",
-            columns=columns,
-            header_cells=[c.header for c in columns],
-            body_rows=body_rows,
-        )
-
-        return [header, table]
+        port_rank = 0 if port in interesting_ports else 1
+        return (scope_rank(scope), port_rank, -count, proc.lower(), ip)
 
     @classmethod
-    def _render_lan_local(cls, snapshot: Any | None) -> list[Any]:
-        """Render LAN and LOCAL established services."""
-        snap = snapshot if isinstance(snapshot, dict) else {}
-        items = snap.get("cache_items")
-        rows = items if isinstance(items, list) else []
-
-        cleaned: list[dict[str, Any]] = [r for r in rows if isinstance(r, dict)]
-
-        def is_established_tcp(row: dict[str, Any]) -> bool:
-            state = row.get("state")
-            if isinstance(state, str) and state.strip() and state.strip().upper() != "ESTABLISHED":
-                return False
-
-            proto = row.get("proto")
-            return not (isinstance(proto, str) and proto.strip() and proto.strip().lower() != "tcp")
-
-        filtered: list[dict[str, Any]] = []
-        for r in cleaned:
-            scope = safe_str(r.get("service_scope")) or "UNKNOWN"
-            if scope in {"LAN", "LOCAL"} and is_established_tcp(r):
-                filtered.append(r)
-
-        header = html.H1("Established LAN/LOCAL services", className="mx-h1")
-
-        if not filtered:
-            return [header, html.Pre("(no LAN/LOCAL services)")]
-
-        def process_text(row: dict[str, Any]) -> tuple[str, str | None]:
-            label = safe_str(row.get("process_name"))
-            if not label:
-                label = safe_str(row.get("process_status")) or "Unavailable"
-
-            exe = row.get("exe")
-            if isinstance(exe, str) and exe.strip():
-                return label, exe.strip()
-
-            status = row.get("process_status")
-            if isinstance(status, str) and status.strip():
-                return label, status.strip()
-
-            return label, None
-
-        def service_text(row: dict[str, Any]) -> tuple[str, str | None]:
-            service = safe_str(row.get("service")) or "Unknown"
-            hint = safe_str(row.get("service_hint")) or None
-            return service, hint
-
-        agg: dict[tuple[str, str, int, int, str], dict[str, Any]] = {}
-        for r in filtered:
-            ip = safe_str(r.get("ip"))
-            port = safe_int(r.get("port"), default=-1)
-            scope = safe_str(r.get("service_scope")) or "UNKNOWN"
-
-            pid_val = r.get("pid")
-            pid = safe_int(pid_val) if pid_val is not None else -1
-
-            proc_label, proc_tip = process_text(r)
-            svc_val, svc_tip = service_text(r)
-
-            key = (scope, ip, port, pid, proc_label)
-            entry = agg.get(key)
-            if entry is None:
-                agg[key] = {
-                    "scope": scope,
-                    "ip": ip,
-                    "port": port,
-                    "service": svc_val,
-                    "service_tip": svc_tip,
-                    "pid": pid if pid != -1 else None,
-                    "process": proc_label,
-                    "process_tip": proc_tip,
-                    "count": 1,
-                }
-            else:
-                entry["count"] = int(entry.get("count") or 0) + 1
-                if entry.get("process_tip") in {None, ""} and proc_tip:
-                    entry["process_tip"] = proc_tip
-                if entry.get("service_tip") in {None, ""} and svc_tip:
-                    entry["service_tip"] = svc_tip
-
-        aggregated = list(agg.values())
-
-        interesting_ports = {443, 53, 80, 3478, 22, 3389}
-
-        def sort_key(row: dict[str, Any]) -> tuple[int, int, int, str, str]:
-            scope = safe_str(row.get("scope"))
-            port = safe_int(row.get("port"), default=-1)
-            proc = safe_str(row.get("process"))
-            ip = safe_str(row.get("ip"))
-            count = safe_int(row.get("count"), default=0)
-
-            port_rank = 0 if port in interesting_ports else 1
-            return (scope_rank(scope), port_rank, -count, proc.lower(), ip)
-
+    def _build_service_body_rows(cls, aggregated: list[dict[str, Any]]) -> list[Any]:
+        """Build table rows for aggregated service entries."""
         body_rows: list[Any] = []
-        for row in sorted(aggregated, key=sort_key):
+
+        for row in sorted(aggregated, key=cls._service_sort_key):
             scope = safe_str(row.get("scope"))
             ip = safe_str(row.get("ip"))
             port = safe_int(row.get("port"), default=-1)
@@ -552,6 +391,16 @@ class ModalTextBuilder:
                 )
             )
 
+        return body_rows
+
+    @classmethod
+    def _build_service_table(
+        cls,
+        aggregated: list[dict[str, Any]],
+        *,
+        class_name: str,
+    ) -> html.Table:
+        """Build a service table for aggregated rows."""
         columns = [
             ColumnSpec("Scope", "8%"),
             ColumnSpec("Remote IP", "28%"),
@@ -562,11 +411,83 @@ class ModalTextBuilder:
             ColumnSpec("Process", "24%"),
         ]
 
-        table = build_table(
-            class_name="mx-table mx-lan-local",
+        return build_table(
+            class_name=class_name,
             columns=columns,
             header_cells=[c.header for c in columns],
-            body_rows=body_rows,
+            body_rows=cls._build_service_body_rows(aggregated),
+        )
+
+    @classmethod
+    def _render_unmapped(cls, snapshot: Any | None) -> list[Any]:
+        """Render unmapped services.
+
+        Render established TCP services with PUBLIC service_scope and missing geolocation.
+        """
+        snap = snapshot if isinstance(snapshot, dict) else {}
+        items = snap.get("cache_items")
+        rows = items if isinstance(items, list) else []
+
+        cleaned: list[dict[str, Any]] = [r for r in rows if isinstance(r, dict)]
+
+        def has_geo(r: dict[str, Any]) -> bool:
+            lat = r.get("lat")
+            lon = r.get("lon")
+            return isinstance(lat, (int, float)) and isinstance(lon, (int, float))
+
+        filtered: list[dict[str, Any]] = []
+        for r in cleaned:
+            scope = safe_str(r.get("service_scope")) or "UNKNOWN"
+            geo_ok = has_geo(r)
+            if scope == "PUBLIC" and not geo_ok:
+                filtered.append(r)
+
+        header = html.H1("Unmapped public services (missing geolocation)", className="mx-h1")
+
+        if not filtered:
+            return [header, html.Pre("(no unmapped public services)")]
+
+        aggregated = cls._aggregate_service_rows(filtered)
+        table = cls._build_service_table(
+            aggregated,
+            class_name="mx-table mx-unmapped",
+        )
+
+        return [header, table]
+
+    # LAN/LOCAL services view
+    @classmethod
+    def _render_lan_local(cls, snapshot: Any | None) -> list[Any]:
+        """Render LAN and LOCAL established services."""
+        snap = snapshot if isinstance(snapshot, dict) else {}
+        items = snap.get("cache_items")
+        rows = items if isinstance(items, list) else []
+
+        cleaned: list[dict[str, Any]] = [r for r in rows if isinstance(r, dict)]
+
+        def is_established_tcp(row: dict[str, Any]) -> bool:
+            state = row.get("state")
+            if isinstance(state, str) and state.strip() and state.strip().upper() != "ESTABLISHED":
+                return False
+
+            proto = row.get("proto")
+            return not (isinstance(proto, str) and proto.strip() and proto.strip().lower() != "tcp")
+
+        filtered: list[dict[str, Any]] = []
+        for r in cleaned:
+            scope = safe_str(r.get("service_scope")) or "UNKNOWN"
+            if scope in {"LAN", "LOCAL"} and is_established_tcp(r):
+                filtered.append(r)
+
+        header = html.H1("Established LAN/LOCAL services", className="mx-h1")
+
+        if not filtered:
+            return [header, html.Pre("(no LAN/LOCAL services)")]
+
+        aggregated = cls._aggregate_service_rows(filtered)
+        table = cls._build_service_table(
+            aggregated,
+            class_name="mx-table mx-lan-local",
         )
 
         return [header, table]
