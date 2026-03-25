@@ -381,4 +381,4 @@ Thanks to @TechnVision for raising the configurable port use case.
 
 Thanks to @desrod for suggesting a solution for configurable port support.
 
-    Thanks to @hugalafutro for suggesting optional SYS_PTRACE support for process visibility on Linux. This approach was tested on Ubuntu but did not provide additional process information.
+Thanks to @hugalafutro for suggesting optional SYS_PTRACE support for process visibility on Linux. This approach was tested on Ubuntu but did not provide additional process information.
