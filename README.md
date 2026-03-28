@@ -131,30 +131,47 @@ PowerShell:
 
 ## GeoIP databases (required for map locations)
 
-TapMap uses local MaxMind GeoLite2 databases for geolocation.  
+TapMap uses local MaxMind GeoLite2 databases for geolocation.
 The databases are not included in the download.
 
 TapMap works without these files, but map locations will not be displayed.
 
 Required files:
 
-- GeoLite2-City.mmdb  
-- GeoLite2-ASN.mmdb  
+- GeoLite2-City.mmdb
+- GeoLite2-ASN.mmdb
 
-Download is free from MaxMind, but requires an account and acceptance of license terms:
+### Option A — Auto-update (recommended)
+
+TapMap can download and refresh databases automatically.
+Requires a free MaxMind account and license key:
 
 ```
 https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
 ```
 
-After downloading:
+Set these environment variables before starting TapMap:
 
-1. Start TapMap.  
-2. Open the **data folder** from the app.  
-3. Copy the `.mmdb` files into that folder.  
+Linux / macOS:
+
+    MAXMIND_ACCOUNT_ID=123456 MAXMIND_LICENSE_KEY=your_key python tapmap.py
+
+PowerShell:
+
+    $env:MAXMIND_ACCOUNT_ID="123456"
+    $env:MAXMIND_LICENSE_KEY="your_key"
+    python tapmap.py
+
+TapMap will download the databases on first run and refresh them automatically every 7 days (configurable via `MAXMIND_UPDATE_INTERVAL_DAYS`).
+
+### Option B — Manual placement
+
+1. Download the `.mmdb` files from MaxMind.
+2. Start TapMap and open the **data folder** from the app.
+3. Copy the `.mmdb` files into that folder.
 4. Click **Recheck GeoIP databases**.
 
-Update recommendation: download updated databases regularly, for example monthly.  
+Update recommendation: download updated databases regularly, for example monthly.
 Redistribution is subject to the MaxMind license terms.
 
 ---
@@ -245,10 +262,23 @@ Common settings:
 - `POLL_INTERVAL_MS`
 - `COORD_PRECISION`
 - `ZOOM_NEAR_KM`
+- `MAXMIND_UPDATE_INTERVAL_DAYS`
 
 `SERVER_PORT` defines the default port used by the local Dash server.
 
 The port can be overridden at runtime using the environment variable `TAPMAP_PORT`.
+
+### Environment variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `TAPMAP_PORT` | Override server port | `8050` |
+| `TAPMAP_HOST` | Override bind host | `127.0.0.1` |
+| `TAPMAP_DATA_DIR` | Override data directory path | platform default |
+| `TAPMAP_IN_DOCKER` | Signal Docker mode | — |
+| `MAXMIND_ACCOUNT_ID` | MaxMind account ID — enables auto-update | — |
+| `MAXMIND_LICENSE_KEY` | MaxMind license key | — |
+| `MAXMIND_UPDATE_INTERVAL_DAYS` | Database refresh cadence in days | `7` |
 
 ---
 
@@ -298,6 +328,11 @@ Place the GeoLite2 database files in:
 
     docker compose -f compose.linux.yaml up --build
 
+To enable auto-update, uncomment and set the MaxMind env vars in `compose.linux.yaml`:
+
+    MAXMIND_ACCOUNT_ID: "123456"
+    MAXMIND_LICENSE_KEY: "your_license_key"
+
 The server binds to 0.0.0.0 by default in Docker.
 
 Override in compose if needed:
@@ -329,9 +364,9 @@ Behavior may vary across systems.
 
 ---
 
-## Docker Hub
+## GitHub Container Registry
 
-TapMap can run directly from Docker Hub without cloning the repository.
+TapMap can run directly from the container registry without cloning the repository.
 
 ### Setup
 
@@ -339,7 +374,7 @@ Create a local data folder:
 
     mkdir -p ~/tapmap-data
 
-Place the GeoLite2 database files in that folder:
+If using manual database placement, copy the GeoLite2 files there:
 
 - GeoLite2-City.mmdb
 - GeoLite2-ASN.mmdb
@@ -351,7 +386,18 @@ Place the GeoLite2 database files in that folder:
       --pid host \
       -v ~/tapmap-data:/data \
       -e TAPMAP_IN_DOCKER=1 \
-      olalie/tapmap:latest
+      ghcr.io/phutur1st/tapmap:latest
+
+With MaxMind auto-update enabled:
+
+    docker run --rm \
+      --network host \
+      --pid host \
+      -v ~/tapmap-data:/data \
+      -e TAPMAP_IN_DOCKER=1 \
+      -e MAXMIND_ACCOUNT_ID=your_account_id \
+      -e MAXMIND_LICENSE_KEY=your_license_key \
+      ghcr.io/phutur1st/tapmap:latest
 
 The server binds to 0.0.0.0 by default in Docker.
 
