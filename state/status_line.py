@@ -18,6 +18,7 @@ def render_status_text(
     status_flash: Any,
     myloc_label: str,
     to_int: Any,
+    node_statuses: list[dict[str, Any]] | None = None,
 ) -> str:
     """Render status bar text."""
     if isinstance(status_flash, dict):
@@ -53,6 +54,12 @@ def render_status_text(
                 live_udp_bound = to_int(stats.get("live_udp_bound"))
                 updated = stats.get("updated") or updated
 
+    node_segment = ""
+    if node_statuses is not None:
+        ok_count = sum(1 for n in node_statuses if n.get("ok"))
+        total_count = len(node_statuses)
+        node_segment = f" | NODES: {ok_count}/{total_count}"
+
     return (
         f"STATUS: {status}{note} | "
         f"LIVE: TCP {live_tcp_total} EST {live_tcp_established} "
@@ -61,4 +68,5 @@ def render_status_text(
         f"CACHE: {cache_chain} | "
         f"UPDATED: {updated} | "
         f"MYLOC: {myloc_label}"
+        f"{node_segment}"
     )

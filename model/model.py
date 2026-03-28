@@ -33,6 +33,7 @@ class CacheItem(TypedDict):
     country: str | None
     asn: str | None
     asn_org: str | None
+    node: str | None
 
 
 class OpenPort(TypedDict):
@@ -57,6 +58,7 @@ class SnapshotPayload(TypedDict):
     cache_items: list[CacheItem]
     map_candidates: list[CacheItem]
     open_ports: list[OpenPort]
+    node_status: list[dict[str, Any]]
 
 
 class Model:
@@ -157,6 +159,7 @@ class Model:
                 "cache_items": cache_items,
                 "map_candidates": map_candidates,
                 "open_ports": open_ports,
+                "node_status": [],
             }
 
         except Exception as exc:
@@ -177,6 +180,7 @@ class Model:
                 "cache_items": [],
                 "map_candidates": [],
                 "open_ports": [],
+                "node_status": [],
             }
 
     def _geoinfo_enabled(self) -> bool:
@@ -329,4 +333,5 @@ class Model:
             "country": conn.get("country"),
             "asn": conn.get("asn"),
             "asn_org": conn.get("asn_org"),
+            "node": None,
         }

@@ -25,6 +25,8 @@ def render_layout(
     menu_overlay_class: str,
     menu_panel_class: str,
     modal_overlay_class: str,
+    is_hub: bool = False,
+    hub_node_names: list[str] | None = None,
 ) -> html.Div:
     """Render the application layout."""
     return html.Div(
@@ -36,9 +38,10 @@ def render_layout(
             dcc.Store(id="model_snapshot", data=None),
             dcc.Store(id="ui_cache", data={}),
             dcc.Store(id="status_cache", data=status_cache_store),
-            dcc.Store(id="ui_view", data={"points": [], "summaries": {}, "details": {}}),
+            dcc.Store(id="ui_view", data={"points": [], "point_nodes": [], "summaries": {}, "details": {}}),
             dcc.Store(id="modal_state", data=initial_modal_state),
             dcc.Store(id="open_ports_prefs", data={"show_system": False}),
+            dcc.Store(id="active_nodes", data=["__local__"]),
             dcc.Input(
                 id="key_capture",
                 type="text",
@@ -101,7 +104,28 @@ def render_layout(
                         ],
                         className="mx-menu-group",
                     ),
-                ],
+                ]
+                + (
+                    [
+                        html.Div("Nodes", className="mx-panel__title"),
+                        html.Div(
+                            [
+                                _node_toggle_button("Local", "__local__"),
+                            ]
+                            + [
+                                _node_toggle_button(name, name)
+                                for name in (hub_node_names or [])
+                            ]
+                            + [
+                                _node_toggle_button("All", "__all__"),
+                            ],
+                            className="mx-menu-group mx-node-selector",
+                        ),
+                        _menu_button("Node status", "menu_node_status"),
+                    ]
+                    if is_hub
+                    else []
+                ),
             ),
             html.Div(
                 id="modal_overlay",
@@ -153,5 +177,16 @@ def _menu_button(label: str, btn_id: str) -> html.Button:
         id=btn_id,
         n_clicks=0,
         className="mx-btn mx-btn--menu",
+        type="button",
+    )
+
+
+def _node_toggle_button(label: str, node_name: str) -> html.Button:
+    """Render a node toggle button with a pattern-matching ID."""
+    return html.Button(
+        label,
+        id={"type": "btn_node", "name": node_name},
+        n_clicks=0,
+        className="mx-btn mx-btn--menu mx-btn--node",
         type="button",
     )

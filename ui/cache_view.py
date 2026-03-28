@@ -29,8 +29,8 @@ class CacheViewBuilder:
         self.logger = logging.getLogger(__name__)
 
     @staticmethod
-    def _service_key(ip: str, port: int) -> str:
-        return f"{ip}|{port}"
+    def _service_key(ip: str, port: int, node: str | None = None) -> str:
+        return f"{node}|{ip}|{port}" if node else f"{ip}|{port}"
 
     @staticmethod
     def _fmt_ip_port(ip: str, port: int) -> str:
@@ -93,7 +93,8 @@ class CacheViewBuilder:
             process_name = safe_str(candidate.get("process_name"))
             pid = safe_int(candidate.get("pid"))
 
-            key = self._service_key(ip, port)
+            node = safe_str(candidate.get("node")) or None
+            key = self._service_key(ip, port, node)
             entry = cache.get(key)
 
             if not isinstance(entry, dict):
@@ -124,6 +125,7 @@ class CacheViewBuilder:
             "country": candidate.get("country"),
             "asn": candidate.get("asn"),
             "asn_org": candidate.get("asn_org"),
+            "node": safe_str(candidate.get("node")) or None,
             "first_seen": self._now_text(),
             "processes": [],
             "proc_pids": {},
@@ -160,19 +162,41 @@ class CacheViewBuilder:
         pid_set.add(pid)
         proc_pids_map[process_name] = sorted(pid_set)
 
-    def build_view_from_cache(self, ui_cache: dict[str, Any]) -> dict[str, Any]:
+    def build_view_from_cache(
+        self,
+        ui_cache: dict[str, Any],
+        active_nodes: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Group cached entries by rounded coordinates and build map view data."""
         cache = ui_cache if isinstance(ui_cache, dict) else {}
+
+        if active_nodes is not None:
+            from model.node_client import LOCAL_NODE_NAME
+
+            active_set = set(active_nodes)
+            cache = {
+                k: v
+                for k, v in cache.items()
+                if isinstance(v, dict)
+                and (
+                    (v.get("node") is None and LOCAL_NODE_NAME in active_set)
+                    or v.get("node") in active_set
+                )
+            }
+
         groups = self._group_by_coord(cache)
 
         points: list[tuple[float, float]] = []
         summaries: dict[str, str] = {}
         details: dict[str, str] = {}
 
+        point_nodes: list[str | None] = []
+
         for idx, coord in enumerate(sorted(groups)):
             entries = groups[coord]
             lon, lat = coord
             points.append((lon, lat))
+            point_nodes.append(self._dominant_node(entries))
 
             place = self._pick_place(entries)
             unique_orgs = self._unique_network_orgs(entries)
@@ -191,7 +215,7 @@ class CacheViewBuilder:
                 unique_orgs=unique_orgs,
             )
 
-        return {"points": points, "summaries": summaries, "details": details}
+        return {"points": points, "point_nodes": point_nodes, "summaries": summaries, "details": details}
 
     def _group_by_coord(
         self, cache: dict[str, Any]
@@ -248,6 +272,11 @@ class CacheViewBuilder:
 
         line3 = f"Ports: {ports_txt} | Procs: {procs_txt}"
 
+        remote_nodes = sorted({e["node"] for e in entries if e.get("node")})
+        if remote_nodes:
+            nodes_txt = self.format_list_compact(remote_nodes, max_items=2)
+            return f"{line1}<br>{line2}<br>{line3}<br>Nodes: {nodes_txt}"
+
         return f"{line1}<br>{line2}<br>{line3}"
 
     def _build_click_details(
@@ -294,6 +323,12 @@ class CacheViewBuilder:
         if country:
             return str(country)
         return "Unknown place name"
+
+    @staticmethod
+    def _dominant_node(entries: list[dict[str, Any]]) -> str | None:
+        """Return the node name if all entries share the same non-None node, else None."""
+        nodes = {e.get("node") for e in entries if e.get("node") is not None}
+        return next(iter(nodes)) if len(nodes) == 1 else None
 
     @staticmethod
     def _unique_str_field(entries: list[dict[str, Any]], key: str) -> list[str]:
@@ -387,7 +422,9 @@ class CacheViewBuilder:
                 if self._has_only_placeholder_processes(proc_names):
                     procs_txt = "unavailable"
 
-            lines.append(f"  {addr} ({proto})")
+            node_label = e.get("node")
+            node_txt = f" [{node_label}]" if node_label else ""
+            lines.append(f"  {addr} ({proto}){node_txt}")
             lines.append(f"    Procs: {procs_txt}")
             lines.append("")
 

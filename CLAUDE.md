@@ -54,6 +54,28 @@ docker compose -f compose.linux.yaml up --build
 
 - **`assets/`** — Frontend: `styles.css` (dark theme, `#00ff66` accent), `keys.js` (keyboard event handler).
 
+### Hub-Node multi-instance mode
+
+TapMap supports a hub-node topology where one "hub" instance aggregates connections from multiple remote "node" instances.
+
+- **Node** (`TAPMAP_NODE_MODE=1`): exposes `GET /api/v1/snapshot` on the existing Dash server.  No extra port needed.
+- **Hub** (a `nodes.json` file present in the data directory): polls all configured nodes in parallel on every tick and merges their data into the map.
+- **Single instance** (default): behavior is identical to before — node/hub features are off unless explicitly configured.
+
+**`nodes.json`** — place in the same data directory as `.mmdb` files:
+```json
+[
+  {"name": "server-a", "url": "http://192.168.1.10:8050"},
+  {"name": "server-b", "url": "http://192.168.1.11:8050"}
+]
+```
+
+**Node selector** (hub only): toggle buttons in the menu panel switch between Local / individual nodes / All.  The full cache is kept in memory — toggling a node back on restores its points instantly.
+
+**Per-node colors**: each node gets a distinct color from the `NODE_COLORS` palette in `ui/map_view.py`.
+
+**Status bar** shows `NODES: {ok}/{total}` when hub mode is active.
+
 ### Platform backends
 
 macOS uses `lsof`, Windows/Linux use `psutil`. The `NetInfoBackend` protocol in `netinfo.py` abstracts this. Docker requires `--network host --pid host`.
@@ -76,9 +98,16 @@ TAPMAP_IN_DOCKER  — Signal Docker mode (sets host to 0.0.0.0)
 MAXMIND_ACCOUNT_ID            — MaxMind account ID (enables auto-update)
 MAXMIND_LICENSE_KEY           — MaxMind license key (enables auto-update)
 MAXMIND_UPDATE_INTERVAL_DAYS  — Refresh cadence in days (default 7)
+
+TAPMAP_NODE_MODE  — Set to "1" to enable the /api/v1/snapshot node endpoint
+TAPMAP_NODE_TOKEN — Shared Bearer token for hub→node authentication (optional)
 ```
 
 When `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY` are set, TapMap automatically
 downloads and refreshes `GeoLite2-City.mmdb` and `GeoLite2-ASN.mmdb` into the data
 directory on startup and on the configured interval. Without credentials, databases
 must be placed manually as before.
+
+When `nodes.json` is present in the data directory, the instance acts as a hub and
+polls the listed nodes on every tick. Set `TAPMAP_NODE_TOKEN` on both hub and node
+instances to require Bearer token authentication on the snapshot endpoint.
