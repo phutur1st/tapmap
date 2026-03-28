@@ -805,6 +805,7 @@ class TapMap:
 
         if self.runtime.is_hub:
             all_node_names = [LOCAL_NODE_NAME] + [n.name for n in self.runtime.hub_nodes]
+            btn_node_ids = [{"type": "btn_node", "name": n} for n in all_node_names + ["__all__"]]
 
             @self.app.callback(
                 Output("active_nodes", "data"),
@@ -822,9 +823,36 @@ class TapMap:
                 current = set(active_data) if isinstance(active_data, list) else {LOCAL_NODE_NAME}
                 if name in current:
                     updated = current - {name}
-                    # Keep at least one active
                     return list(updated) if updated else list(current)
                 return sorted(current | {name}, key=lambda x: all_node_names.index(x) if x in all_node_names else 99)
+
+            @self.app.callback(
+                Output({"type": "btn_node", "name": ALL}, "className"),
+                Input("active_nodes", "data"),
+            )
+            def update_node_btn_classes(active_data: Any) -> list[str]:
+                active = set(active_data) if isinstance(active_data, list) else {LOCAL_NODE_NAME}
+                classes = []
+                for btn_id in btn_node_ids:
+                    name = btn_id["name"]
+                    if name == "__all__":
+                        is_active = active == set(all_node_names)
+                    else:
+                        is_active = name in active
+                    base = "mx-btn mx-btn--menu mx-btn--node"
+                    classes.append(f"{base} mx-btn--active" if is_active else base)
+                return classes
+
+            @self.app.callback(
+                Output("ui_view", "data", allow_duplicate=True),
+                Input("active_nodes", "data"),
+                State("ui_cache", "data"),
+                prevent_initial_call=True,
+            )
+            def on_active_nodes_change(active_nodes_data: Any, ui_cache_data: Any) -> Any:
+                ui_cache = self._ensure_dict(ui_cache_data)
+                active = active_nodes_data if isinstance(active_nodes_data, list) else [LOCAL_NODE_NAME]
+                return self.view_builder.build_view_from_cache(ui_cache, active_nodes=active)
 
         @self.app.callback(
             Output("status_bar", "children"),

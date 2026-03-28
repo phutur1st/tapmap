@@ -117,6 +117,17 @@ body {
   font-size: 13px;
 }
 
+.mx-btn--node {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.mx-btn--active {
+  background-color: #003300;
+  border-color: #00ff66;
+  color: #00ff66;
+}
+
 .mx-btn--primary {
   padding: 10px 16px;
   font-size: 14px;
