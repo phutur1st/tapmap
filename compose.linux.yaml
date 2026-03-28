@@ -17,11 +17,11 @@ services:
       # downloads.  Databases are refreshed every MAXMIND_UPDATE_INTERVAL_DAYS
       # days (default: 7).  When omitted, place .mmdb files in the data volume
       # manually.
-      #MAXMIND_ACCOUNT_ID: "123456"
-      #MAXMIND_LICENSE_KEY: "your_license_key_here"
-      #MAXMIND_UPDATE_INTERVAL_DAYS: "7"
+      MAXMIND_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID}
+      MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY}
+      MAXMIND_UPDATE_INTERVAL_DAYS: ${MAXMIND_UPDATE_INTERVAL_DAYS:-7}
 
     volumes:
-      - ./docker-data:/data
+      - /stack/tapmap/docker-data:/data
 
     restart: unless-stopped
