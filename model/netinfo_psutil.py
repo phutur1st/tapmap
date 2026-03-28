@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -7,14 +8,29 @@ import psutil
 
 from .netinfo import ProcessInfo
 
+logger = logging.getLogger(__name__)
+
 
 class PsutilNetInfo:
-    """Collect socket records via psutil and attach process metadata (Windows)."""
+    """Collect socket records via psutil and attach process metadata (Linux/Windows).
+
+    On Linux, also scans non-host network namespaces (Docker bridge containers)
+    when /proc access permits it.
+    """
 
     KINDS = ("tcp", "udp")
 
     def __init__(self, allowed_statuses: set[str] | None = None) -> None:
         self.allowed_statuses = allowed_statuses
+        self._scan_namespaces = self._check_namespace_scan()
+
+    @staticmethod
+    def _check_namespace_scan() -> bool:
+        try:
+            from .netinfo_namespaces import is_available
+            return is_available()
+        except Exception:
+            return False
 
     def get_data(self) -> list[dict[str, Any]]:
         """Return connection records with socket and process fields."""
@@ -58,7 +74,42 @@ class PsutilNetInfo:
                     }
                 )
 
+        if self._scan_namespaces:
+            results.extend(self._get_namespace_connections(results))
+
         return results
+
+    def _get_namespace_connections(
+        self, existing: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Return connections from non-host namespaces, deduped against existing."""
+        try:
+            from .netinfo_namespaces import collect_namespace_connections
+            ns_conns = collect_namespace_connections(self.allowed_statuses)
+        except Exception as exc:
+            logger.debug("Namespace scan failed: %s", exc)
+            return []
+
+        # Build dedup set from existing results
+        seen: set[tuple] = {
+            (r["proto"], r["laddr_ip"], r["laddr_port"], r["raddr_ip"], r["raddr_port"])
+            for r in existing
+        }
+
+        new: list[dict[str, Any]] = []
+        for conn in ns_conns:
+            key = (
+                conn["proto"],
+                conn["laddr_ip"],
+                conn["laddr_port"],
+                conn["raddr_ip"],
+                conn["raddr_port"],
+            )
+            if key not in seen:
+                seen.add(key)
+                new.append(conn)
+
+        return new
 
     def _is_included(self, conn: Any, *, proto: str) -> bool:
         """Return True if the connection is included in the snapshot."""
