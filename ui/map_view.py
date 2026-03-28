@@ -242,6 +242,18 @@ class MapUI:
     COLOR_ME: Final[str] = "#00FFFF"
     COLOR_ZOOM: Final[str] = "#FFFF00"
 
+    # Per-node color palette (index 0 = local/default, then remote nodes in order)
+    NODE_COLORS: Final[tuple[str, ...]] = (
+        "#FF00FF",  # 0 – local (magenta, same as COLOR_NORMAL)
+        "#00BFFF",  # 1 – deep sky blue
+        "#FF8C00",  # 2 – dark orange
+        "#FF4500",  # 3 – orange red
+        "#7FFF00",  # 4 – chartreuse
+        "#DA70D6",  # 5 – orchid
+        "#00CED1",  # 6 – dark turquoise
+        "#FFD700",  # 7 – gold
+    )
+
     HOVER_BG: Final[str] = "#000000"
     HOVER_BORDER: Final[str] = "#00aa44"
     HOVER_FONT: Final[str] = "#00ff66"
@@ -345,6 +357,8 @@ class MapUI:
         targets: list[LonLat],
         summaries: dict[str, str],
         zoom_flags: list[bool],
+        point_nodes: list[str | None] | None = None,
+        node_color_map: dict[str, str] | None = None,
     ) -> None:
         lons = [lon for lon, _ in targets]
         lats = [lat for _, lat in targets]
@@ -356,7 +370,11 @@ class MapUI:
         colors: list[str] = []
         texts: list[str] = []
         for i in range(len(targets)):
-            colors.append(self.COLOR_ZOOM if zoom_flags[i] else self.COLOR_NORMAL)
+            if node_color_map and point_nodes and i < len(point_nodes):
+                node_name = point_nodes[i]
+                colors.append(node_color_map.get(node_name or "", self.COLOR_NORMAL))
+            else:
+                colors.append(self.COLOR_ZOOM if zoom_flags[i] else self.COLOR_NORMAL)
             base = summaries.get(str(i), f"Summary {i}")
             texts.append(base)
 
@@ -435,13 +453,17 @@ class MapUI:
         self,
         point_sets: PointSets,
         summaries: dict[str, str] | None = None,
+        point_nodes: list[str | None] | None = None,
+        node_color_map: dict[str, str] | None = None,
     ) -> go.Figure:
         """Build a world map figure.
 
         Color rules:
-            - MAGENTA: normal remote targets and lines
+            - MAGENTA: normal remote targets and lines (or local when no node map)
             - YELLOW: targets and lines with nearby neighbors (zoom recommended)
             - CYAN: local marker when enabled
+            - Per-node palette: when node_color_map is provided, each point is
+              colored by its originating node instead of the zoom/normal rule.
         """
         summaries = summaries or {}
         targets, my_location = point_sets
@@ -468,7 +490,12 @@ class MapUI:
 
         if targets:
             self._add_target_markers(
-                fig, targets=targets, summaries=summaries, zoom_flags=zoom_flags
+                fig,
+                targets=targets,
+                summaries=summaries,
+                zoom_flags=zoom_flags,
+                point_nodes=point_nodes,
+                node_color_map=node_color_map,
             )
 
         if my_lon is not None and my_lat is not None:

@@ -30,7 +30,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
-from dash import Dash, Input, Output, State, ctx, html, no_update
+from dash import ALL, Dash, Input, Output, State, ctx, html, no_update
 
 from app_dirs import open_folder
 from config import COORD_PRECISION, MY_LOCATION, POLL_INTERVAL_MS, ZOOM_NEAR_KM
@@ -38,6 +38,13 @@ from model.geoinfo import GeoInfo
 from model.maxmind_updater import MaxMindUpdater
 from model.model import Model
 from model.netinfo import NetInfo
+from model.node_client import (
+    LOCAL_NODE_NAME,
+    HubPoller,
+    NodeFetchResult,
+    results_to_status,
+)
+from model.node_server import register_node_endpoint
 from model.public_ip import iter_public_ip_candidates
 from runtime import AppMeta, RuntimeContext, build_runtime
 from state.keyboard import build_key_action
@@ -72,7 +79,7 @@ class TapMap:
     """Coordinate Dash callbacks, model polling, and UI state."""
 
     MENU_SCREENS: ClassVar[frozenset[str]] = frozenset(
-        {"menu_unmapped", "menu_lan_local", "menu_open_ports", "menu_help", "menu_about"}
+        {"menu_unmapped", "menu_lan_local", "menu_open_ports", "menu_help", "menu_about", "menu_node_status"}
     )
     MENU_COMMANDS: ClassVar[frozenset[str]] = frozenset(
         {"menu_clear_cache", "menu_cache_terminal", "menu_recheck_geoip"}
@@ -135,6 +142,31 @@ class TapMap:
                 "MaxMind auto-update disabled (set MAXMIND_ACCOUNT_ID and"
                 " MAXMIND_LICENSE_KEY to enable)."
             )
+
+        self._hub_poller: HubPoller | None = None
+        self._node_statuses: list[dict[str, Any]] = []
+        if self.runtime.is_node:
+            register_node_endpoint(
+                self.app.server,
+                self.model.snapshot,
+                self.runtime.hub_node_token,
+            )
+            self.logger.info("Node mode enabled — snapshot endpoint registered.")
+        if self.runtime.is_hub:
+            self._hub_poller = HubPoller(
+                list(self.runtime.hub_nodes),
+                timeout_s=self.runtime.node_fetch_timeout_s,
+            )
+            self.logger.info(
+                "Hub mode enabled — %d node(s) configured.", len(self.runtime.hub_nodes)
+            )
+
+        # Build a stable node → color mapping.  Local points (node=None) use the
+        # first palette entry; each remote node gets the next available color.
+        palette = self.ui.NODE_COLORS
+        self._node_color_map: dict[str, str] = {"": palette[0]}
+        for i, node_cfg in enumerate(self.runtime.hub_nodes):
+            self._node_color_map[node_cfg.name] = palette[(i + 1) % len(palette)]
 
         self._public_ip_cached: str | None = None
         self._auto_geo_cached: dict[str, Any] = {}
@@ -211,6 +243,8 @@ class TapMap:
             menu_overlay_class=self._menu_overlay_class(False),
             menu_panel_class=self._menu_panel_class(False),
             modal_overlay_class=self._modal_overlay_class(initial_modal_open),
+            is_hub=self.runtime.is_hub,
+            hub_node_names=[n.name for n in self.runtime.hub_nodes],
         )
 
     @staticmethod
@@ -341,8 +375,37 @@ class TapMap:
         flash = self._flash("Cache shown in terminal.", self.MIN_FLASH_S)
         return no_update, no_update, no_update, no_update, flash
 
+    def _merge_hub_snapshot(
+        self, snap: dict[str, Any], active_nodes: list[str]
+    ) -> dict[str, Any]:
+        """Fetch remote node snapshots and merge into snap (hub mode only)."""
+        if self._hub_poller is None:
+            return snap
+
+        remote_names = [n for n in active_nodes if n != LOCAL_NODE_NAME]
+        if not remote_names:
+            return snap
+
+        results: list[NodeFetchResult] = self._hub_poller.fetch_all(remote_names)
+        self._node_statuses = results_to_status(results)
+
+        for result in results:
+            if not result.ok or result.payload is None:
+                continue
+            p = result.payload
+            snap["cache_items"] = snap.get("cache_items", []) + p.get("cache_items", [])
+            snap["map_candidates"] = snap.get("map_candidates", []) + p.get("map_candidates", [])
+            snap["open_ports"] = snap.get("open_ports", []) + p.get("open_ports", [])
+
+        snap["node_status"] = self._node_statuses
+        return snap
+
     def _handle_normal_poll(
-        self, tick_n: int, status_cache: StatusCache, ui_cache: dict[str, Any]
+        self,
+        tick_n: int,
+        status_cache: StatusCache,
+        ui_cache: dict[str, Any],
+        active_nodes: list[str] | None = None,
     ) -> tuple[Any, Any, Any, Any, Any]:
         snap = self.model.snapshot()
         if not isinstance(snap, dict):
@@ -351,6 +414,10 @@ class TapMap:
             return {"error": True}, ui_cache, status_cache.to_store(), view, flash
 
         snap["app_info"] = self._build_app_info()
+
+        # Merge remote node data when hub mode is active
+        _active = active_nodes if isinstance(active_nodes, list) else [LOCAL_NODE_NAME]
+        snap = self._merge_hub_snapshot(snap, _active)
 
         if snap.get("error"):
             view = self.view_builder.build_view_from_cache(ui_cache)
@@ -367,7 +434,7 @@ class TapMap:
         if self.DEBUG_COORDS and (tick_n % self.DEBUG_COORDS_EVERY_N_TICKS == 0):
             self.view_builder.debug_coords(updated_cache)
 
-        view = self.view_builder.build_view_from_cache(updated_cache)
+        view = self.view_builder.build_view_from_cache(updated_cache, active_nodes=_active)
         return snap, updated_cache, status_cache.to_store(), view, no_update
 
     def _open_browser(self, url: str, delay_s: float = 0.8) -> None:
@@ -458,6 +525,7 @@ class TapMap:
                 snapshot=snapshot,
                 show_system=show_system,
                 is_docker=self.runtime.is_docker,
+                node_statuses=self._node_statuses if self.runtime.is_hub else None,
             )
             return self._as_children(body), self._class_for_modal_screen(screen)
 
@@ -491,6 +559,7 @@ class TapMap:
             State("ui_cache", "data"),
             State("status_cache", "data"),
             State("status_flash", "data"),
+            State("active_nodes", "data"),
             prevent_initial_call=False,
         )
         def poll_model(
@@ -503,9 +572,11 @@ class TapMap:
             ui_cache_data: Any,
             status_cache_data: Any,
             status_flash_data: Any,
+            active_nodes_data: Any,
         ):
             status_cache = StatusCache.from_store(status_cache_data)
             ui_cache = self._ensure_dict(ui_cache_data)
+            active_nodes = active_nodes_data if isinstance(active_nodes_data, list) else [LOCAL_NODE_NAME]
             trigger = ctx.triggered_id
             decision = decide_poll_action(
                 trigger=trigger,
@@ -526,7 +597,7 @@ class TapMap:
 
             if decision.action == ACTION_NORMAL_POLL:
                 snap, cache, sc_store, view, _flash = self._handle_normal_poll(
-                    tick_n, status_cache, ui_cache
+                    tick_n, status_cache, ui_cache, active_nodes
                 )
 
                 now = datetime.now().timestamp()
@@ -718,11 +789,42 @@ class TapMap:
 
             points = self._ensure_list(view.get("points"))
             summaries = self._ensure_dict(view.get("summaries"))
+            point_nodes_raw = view.get("point_nodes")
+            point_nodes = point_nodes_raw if isinstance(point_nodes_raw, list) else None
+            node_color_map = self._node_color_map if self.runtime.is_hub else None
 
             if not points:
                 return self.ui.create_figure(([], self.my_location), summaries=summaries)
 
-            return self.ui.create_figure((points, self.my_location), summaries=summaries)
+            return self.ui.create_figure(
+                (points, self.my_location),
+                summaries=summaries,
+                point_nodes=point_nodes,
+                node_color_map=node_color_map,
+            )
+
+        if self.runtime.is_hub:
+            all_node_names = [LOCAL_NODE_NAME] + [n.name for n in self.runtime.hub_nodes]
+
+            @self.app.callback(
+                Output("active_nodes", "data"),
+                Input({"type": "btn_node", "name": ALL}, "n_clicks"),
+                State("active_nodes", "data"),
+                prevent_initial_call=True,
+            )
+            def node_selector(n_clicks_list: list[int], active_data: Any) -> list[str]:
+                triggered = ctx.triggered_id
+                if not isinstance(triggered, dict):
+                    return no_update
+                name = triggered.get("name", "")
+                if name == "__all__":
+                    return list(all_node_names)
+                current = set(active_data) if isinstance(active_data, list) else {LOCAL_NODE_NAME}
+                if name in current:
+                    updated = current - {name}
+                    # Keep at least one active
+                    return list(updated) if updated else list(current)
+                return sorted(current | {name}, key=lambda x: all_node_names.index(x) if x in all_node_names else 99)
 
         @self.app.callback(
             Output("status_bar", "children"),
@@ -735,12 +837,14 @@ class TapMap:
             status_cache_data: Any,
             status_flash: Any,
         ) -> str:
+            node_statuses = self._node_statuses if self.runtime.is_hub else None
             return render_status_text(
                 snapshot=snapshot,
                 status_cache_data=status_cache_data,
                 status_flash=status_flash,
                 myloc_label=self._myloc_label(),
                 to_int=self._to_int,
+                node_statuses=node_statuses,
             )
 
     def run(self) -> None:

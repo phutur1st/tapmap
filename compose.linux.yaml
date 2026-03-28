@@ -7,6 +7,12 @@ services:
     network_mode: host
     pid: host
 
+    cap_add:
+      - SYS_PTRACE
+
+    security_opt:
+      - apparmor:unconfined
+
     environment:
       TAPMAP_IN_DOCKER: "1"
       TAPMAP_PORT: "8050"
@@ -20,6 +26,13 @@ services:
       MAXMIND_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID}
       MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY}
       MAXMIND_UPDATE_INTERVAL_DAYS: ${MAXMIND_UPDATE_INTERVAL_DAYS:-7}
+      # Hub-node mode (optional).
+      # Set TAPMAP_NODE_MODE=1 to expose the /api/v1/snapshot endpoint so this
+      # instance can act as a node.  Set TAPMAP_NODE_TOKEN to require Bearer
+      # token authentication.  Place a nodes.json file in the data volume to
+      # make this instance a hub that polls remote nodes.
+      # TAPMAP_NODE_MODE: "1"
+      # TAPMAP_NODE_TOKEN: ${TAPMAP_NODE_TOKEN}
 
     volumes:
       - /stack/tapmap/docker-data:/data

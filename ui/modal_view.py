@@ -42,6 +42,7 @@ class ModalTextBuilder:
             "menu_clear_cache": "Clear cache",
             "menu_help": "Help",
             "menu_about": "About",
+            "menu_node_status": "Node status",
         }
 
     def for_action(
@@ -51,6 +52,7 @@ class ModalTextBuilder:
         snapshot: Any | None = None,
         show_system: bool = False,
         is_docker: bool,
+        node_statuses: list[dict[str, Any]] | None = None,
     ) -> list[Any]:
         """Build modal body content for a menu action.
 
@@ -71,6 +73,9 @@ class ModalTextBuilder:
 
         if action == "menu_open_ports":
             return self._render_open_ports(snapshot, show_system=show_system)
+
+        if action == "menu_node_status":
+            return self._render_node_status(node_statuses or [])
 
         if action == "menu_help":
             return render_help()
@@ -474,6 +479,50 @@ class ModalTextBuilder:
             class_name="mx-table mx-lan-local",
         )
 
+        return [header, table]
+
+    @classmethod
+    def _render_node_status(cls, node_statuses: list[dict[str, Any]]) -> list[Any]:
+        """Render node status table."""
+        header = html.H1("Node status", className="mx-h1")
+
+        if not node_statuses:
+            return [header, html.Pre("(no remote nodes configured)")]
+
+        body_rows: list[Any] = []
+        for n in node_statuses:
+            name = safe_str(n.get("name")) or "-"
+            ok = n.get("ok")
+            status_text = "OK" if ok else "FAIL"
+            error_msg = safe_str(n.get("error_msg")) or ""
+            status_display = status_text if ok else f"{status_text}: {error_msg}" if error_msg else status_text
+            last_ok = safe_str(n.get("last_ok_ts")) or "-"
+            latency_val = n.get("latency_ms")
+            latency = f"{int(latency_val)} ms" if isinstance(latency_val, (int, float)) else "-"
+
+            body_rows.append(
+                html.Tr(
+                    [
+                        cell(name),
+                        cell(status_display),
+                        cell(last_ok),
+                        cell(latency),
+                    ]
+                )
+            )
+
+        columns = [
+            ColumnSpec("Node", "30%"),
+            ColumnSpec("Status", "35%"),
+            ColumnSpec("Last OK", "20%"),
+            ColumnSpec("Latency", "15%"),
+        ]
+        table = build_table(
+            class_name="mx-table mx-node-status",
+            columns=columns,
+            header_cells=[c.header for c in columns],
+            body_rows=body_rows,
+        )
         return [header, table]
 
     def missing_geo_db(self, geo_data_dir: str, *, is_docker: bool) -> list[Any]:

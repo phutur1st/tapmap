@@ -39,6 +39,10 @@ Locations within this distance are shown in yellow.
 
 # Configure MaxMind GeoLite2 auto-update.
 MAXMIND_UPDATE_INTERVAL_DAYS: Final[float] = 7.0
+
+# Configure hub-node mode.
+NODE_FETCH_TIMEOUT_S: Final[float] = 4.0
+"""Total HTTP timeout in seconds when a hub polls a node."""
 """Days between automatic GeoLite2 database downloads.
 
 Set MAXMIND_ACCOUNT_ID and MAXMIND_LICENSE_KEY environment variables (or provide

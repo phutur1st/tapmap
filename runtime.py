@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app_dirs import ensure_app_data_dir, ensure_native_app_data_dir
-from config import MAXMIND_UPDATE_INTERVAL_DAYS, SERVER_PORT
+from config import MAXMIND_UPDATE_INTERVAL_DAYS, NODE_FETCH_TIMEOUT_S, SERVER_PORT
+from model.node_client import NodeConfig, load_nodes_config
 
 
 @dataclass(frozen=True)
@@ -44,11 +45,29 @@ class RuntimeContext:
     maxmind_account_id: str | None
     maxmind_license_key: str | None
     maxmind_update_interval_days: float
+    node_mode: bool
+    hub_nodes: tuple[NodeConfig, ...]
+    hub_node_token: str | None
 
     @property
     def maxmind_autofetch_enabled(self) -> bool:
         """Return True when MaxMind credentials are configured."""
         return bool(self.maxmind_account_id and self.maxmind_license_key)
+
+    @property
+    def is_node(self) -> bool:
+        """Return True when this instance exposes the node snapshot endpoint."""
+        return self.node_mode
+
+    @property
+    def is_hub(self) -> bool:
+        """Return True when this instance polls remote nodes."""
+        return len(self.hub_nodes) > 0
+
+    @property
+    def node_fetch_timeout_s(self) -> float:
+        """Return HTTP timeout in seconds for hub→node requests."""
+        return NODE_FETCH_TIMEOUT_S
 
     @property
     def geo_data_dir(self) -> Path:
@@ -99,6 +118,9 @@ def build_runtime(meta: AppMeta) -> RuntimeContext:
     maxmind_account_id = os.environ.get("MAXMIND_ACCOUNT_ID") or None
     maxmind_license_key = os.environ.get("MAXMIND_LICENSE_KEY") or None
     maxmind_update_interval_days = _get_maxmind_interval()
+    node_mode = os.environ.get("TAPMAP_NODE_MODE", "").strip() == "1"
+    hub_node_token = os.environ.get("TAPMAP_NODE_TOKEN") or None
+    hub_nodes = tuple(load_nodes_config(app_data_dir, hub_node_token))
 
     return RuntimeContext(
         meta=meta,
@@ -113,6 +135,9 @@ def build_runtime(meta: AppMeta) -> RuntimeContext:
         maxmind_account_id=maxmind_account_id,
         maxmind_license_key=maxmind_license_key,
         maxmind_update_interval_days=maxmind_update_interval_days,
+        node_mode=node_mode,
+        hub_nodes=hub_nodes,
+        hub_node_token=hub_node_token,
     )
 
 def _get_maxmind_interval() -> float:
