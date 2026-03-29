@@ -84,8 +84,16 @@ class PsutilNetInfo:
     ) -> list[dict[str, Any]]:
         """Return connections from non-host namespaces, deduped against existing."""
         try:
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
             from .netinfo_namespaces import collect_namespace_connections
-            ns_conns = collect_namespace_connections(self.allowed_statuses)
+
+            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="ns-scan") as ex:
+                future = ex.submit(collect_namespace_connections, self.allowed_statuses)
+                try:
+                    ns_conns = future.result(timeout=4.0)
+                except FutureTimeout:
+                    logger.warning("Namespace scan timed out after 4s — skipping")
+                    return []
         except Exception as exc:
             logger.debug("Namespace scan failed: %s", exc)
             return []
