@@ -1,9 +1,7 @@
 name: Sync with upstream
 
 on:
-  schedule:
-    - cron: "0 6 * * *"  # daily at 06:00 UTC
-  workflow_dispatch:
+  workflow_dispatch:  # manual only — auto-sync disabled (fork is diverged)
 
 permissions:
   contents: write
