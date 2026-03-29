@@ -73,19 +73,25 @@ def _read_comm(pid: int) -> str | None:
 
 
 def _scan_fds(pid: int, result: dict[int, int]) -> None:
-    """Scan /proc/<pid>/fd and /proc/<pid>/task/*/fd for socket inodes."""
-    for fd_dir in [Path(f"/proc/{pid}/fd")] + list(Path(f"/proc/{pid}/task").glob("*/fd") if Path(f"/proc/{pid}/task").exists() else []):
-        try:
-            for fd in fd_dir.iterdir():
-                try:
-                    target = os.readlink(fd)
-                    if target.startswith("socket:["):
-                        inode = int(target[8:-1])
-                        result.setdefault(inode, pid)
-                except (OSError, ValueError):
-                    continue
-        except (OSError, PermissionError):
-            continue
+    """Scan /proc/<pid>/fd for socket inodes.
+
+    All threads in a process share the same fd table (CLONE_FILES), so
+    /proc/<pid>/fd already covers every thread.  Scanning /proc/<pid>/task/*/fd
+    is redundant and extremely slow on processes with many threads (e.g. a
+    torrent client with hundreds of threads).
+    """
+    fd_dir = Path(f"/proc/{pid}/fd")
+    try:
+        for fd in fd_dir.iterdir():
+            try:
+                target = os.readlink(fd)
+                if target.startswith("socket:["):
+                    inode = int(target[8:-1])
+                    result.setdefault(inode, pid)
+            except (OSError, ValueError):
+                continue
+    except (OSError, PermissionError):
+        return
 
 
 def _build_socket_inode_map(pids: list[int]) -> dict[int, int]:
