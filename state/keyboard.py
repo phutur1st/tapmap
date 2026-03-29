@@ -18,6 +18,9 @@ KEY_MAP = {
     "__r__": "menu_recheck_geoip",
     "__h__": "menu_help",
     "__a__": "menu_about",
+    "__n__": "menu_node_status",
+    "__[__": "node_prev",
+    "__]__": "node_next",
     "__esc__": "escape",
 }
 

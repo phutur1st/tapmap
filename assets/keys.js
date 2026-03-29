@@ -55,8 +55,14 @@
         return;
       }
 
-      if (k === "u" || k === "o" || k === "l" || k === "t" || k === "c" || k === "r" || k === "h" || k === "a") {
+      if (k === "u" || k === "o" || k === "l" || k === "t" || k === "c" || k === "r" || k === "h" || k === "a" || k === "n") {
         sendToken("__" + k + "__");
+        return;
+      }
+
+      if (e.key === "[" || e.key === "]") {
+        e.preventDefault();
+        sendToken("__" + e.key + "__");
       }
     },
     true

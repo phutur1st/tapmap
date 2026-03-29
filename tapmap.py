@@ -624,6 +624,7 @@ class TapMap:
             Input("menu_help", "n_clicks"),
             Input("menu_clear_cache", "n_clicks"),
             Input("menu_recheck_geoip", "n_clicks"),
+            Input("menu_node_status", "n_clicks", allow_optional=True),
             State("menu_open", "data"),
             prevent_initial_call=True,
         )
@@ -639,6 +640,7 @@ class TapMap:
             _help: int,
             _clear: int,
             _recheck: int,
+            _node_status: int | None,
             menu_open: Any,
         ) -> Any:
             trigger = ctx.triggered_id
@@ -843,6 +845,36 @@ class TapMap:
                     base = "mx-btn mx-btn--menu mx-btn--node"
                     classes.append(f"{base} mx-btn--active" if is_active else base)
                 return classes
+
+            # Cycle options: Local, each node individually, All
+            cycle_options: list[list[str]] = (
+                [[LOCAL_NODE_NAME]]
+                + [[n] for n in all_node_names[1:]]
+                + [list(all_node_names)]
+            )
+
+            @self.app.callback(
+                Output("active_nodes", "data", allow_duplicate=True),
+                Input("key_action", "data"),
+                State("active_nodes", "data"),
+                prevent_initial_call=True,
+            )
+            def node_cycle(key_action: Any, active_data: Any) -> Any:
+                if not isinstance(key_action, dict):
+                    return no_update
+                action = key_action.get("action")
+                if action not in ("node_prev", "node_next"):
+                    return no_update
+                current = active_data if isinstance(active_data, list) else [LOCAL_NODE_NAME]
+                try:
+                    idx = cycle_options.index(sorted(current, key=lambda x: all_node_names.index(x) if x in all_node_names else 99))
+                except ValueError:
+                    idx = 0
+                if action == "node_next":
+                    idx = (idx + 1) % len(cycle_options)
+                else:
+                    idx = (idx - 1) % len(cycle_options)
+                return cycle_options[idx]
 
             @self.app.callback(
                 Output("ui_view", "data", allow_duplicate=True),
