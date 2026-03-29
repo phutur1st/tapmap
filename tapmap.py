@@ -102,6 +102,7 @@ class TapMap:
             title=self.runtime.meta.name,
             update_title=None,
             suppress_callback_exceptions=True,
+            meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
         )
 
         self.ui = MapUI(zoom_near_km=ZOOM_NEAR_KM, debug=self.DEBUG_COORDS)

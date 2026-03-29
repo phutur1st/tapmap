@@ -502,3 +502,110 @@ body {
     transition: none;
   }
 }
+
+/* ============================================================
+   Responsive — tablet  (≤1024px)
+   ============================================================ */
+
+@media (max-width: 1024px) {
+  :root {
+    --mx-modal-w: min(900px, 82vw);
+  }
+}
+
+/* ============================================================
+   Responsive — mobile  (≤640px)
+   ============================================================ */
+
+@media (max-width: 640px) {
+  :root {
+    --mx-modal-w: min(96vw, 900px);
+    --mx-modal-max-h: 88vh;
+    --mx-pad-x: 10px;
+    --mx-pad-y: 10px;
+  }
+
+  #btn_menu {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 10px 12px;
+    font-size: 18px;
+    line-height: 20px;
+  }
+
+  .app-title {
+    left: 60px;
+    top: 12px;
+    font-size: 15px;
+  }
+
+  .mx-panel {
+    left: 0;
+    right: 0;
+    top: 0;
+    min-width: unset;
+    width: 100%;
+    border-radius: 0 0 var(--mx-radius-lg) var(--mx-radius-lg);
+    border-left: none;
+    border-right: none;
+    border-top: none;
+    padding: 12px 14px 14px;
+    transform-origin: top center;
+  }
+
+  .mx-btn--menu {
+    min-height: 44px;
+    padding: 12px 14px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+  }
+
+  .mx-btn--node {
+    min-height: 44px;
+    font-size: 13px;
+    padding: 10px 12px;
+  }
+
+  .mx-btn--primary {
+    min-height: 44px;
+    padding: 12px 18px;
+    font-size: 14px;
+  }
+
+  .mx-modal-actions {
+    padding: 10px var(--mx-pad-x);
+    gap: 8px;
+  }
+
+  .status-bar {
+    font-size: 10px;
+    letter-spacing: 0;
+    padding: 4px 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.2;
+  }
+
+  .modal-body .mx-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+
+  .mx-table.mx-kv td:first-child {
+    width: 70px;
+  }
+
+  .mx-path-box {
+    max-width: 80vw;
+  }
+
+  .mx-btn--floating {
+    right: 16px;
+    bottom: 44px;
+  }
+}
