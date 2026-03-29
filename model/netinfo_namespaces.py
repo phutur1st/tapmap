@@ -72,12 +72,11 @@ def _read_comm(pid: int) -> str | None:
         return None
 
 
-def _build_socket_inode_map(pids: list[int]) -> dict[int, int]:
-    """Return mapping of socket inode -> PID by scanning /proc/<pid>/fd."""
-    result: dict[int, int] = {}
-    for pid in pids:
+def _scan_fds(pid: int, result: dict[int, int]) -> None:
+    """Scan /proc/<pid>/fd and /proc/<pid>/task/*/fd for socket inodes."""
+    for fd_dir in [Path(f"/proc/{pid}/fd")] + list(Path(f"/proc/{pid}/task").glob("*/fd") if Path(f"/proc/{pid}/task").exists() else []):
         try:
-            for fd in Path(f"/proc/{pid}/fd").iterdir():
+            for fd in fd_dir.iterdir():
                 try:
                     target = os.readlink(fd)
                     if target.startswith("socket:["):
@@ -87,6 +86,13 @@ def _build_socket_inode_map(pids: list[int]) -> dict[int, int]:
                     continue
         except (OSError, PermissionError):
             continue
+
+
+def _build_socket_inode_map(pids: list[int]) -> dict[int, int]:
+    """Return mapping of socket inode -> PID by scanning /proc/<pid>/fd."""
+    result: dict[int, int] = {}
+    for pid in pids:
+        _scan_fds(pid, result)
     return result
 
 
@@ -149,9 +155,8 @@ def collect_namespace_connections(
 
     host_inode = _ns_inode(os.getpid())
 
-    # Walk /proc, collect all PIDs, group non-host namespaces by inode
-    ns_to_rep_pid: dict[int, int] = {}
-    all_pids: list[int] = []
+    # Walk /proc: group PIDs by namespace inode, skip host namespace
+    ns_to_pids: dict[int, list[int]] = {}
 
     try:
         entries = list(_PROC.iterdir())
@@ -162,23 +167,29 @@ def collect_namespace_connections(
         if not entry.name.isdigit():
             continue
         pid = int(entry.name)
-        all_pids.append(pid)
         inode = _ns_inode(pid)
         if inode is None or inode == host_inode:
             continue
-        ns_to_rep_pid.setdefault(inode, pid)
+        ns_to_pids.setdefault(inode, []).append(pid)
 
-    if not ns_to_rep_pid:
+    if not ns_to_pids:
         return []
 
-    logger.debug("Found %d non-host network namespace(s)", len(ns_to_rep_pid))
-
-    inode_to_pid = _build_socket_inode_map(all_pids)
+    logger.debug("Found %d non-host network namespace(s)", len(ns_to_pids))
 
     # Build dedup key from proto + addresses to avoid duplicating host conns
     results: list[dict[str, Any]] = []
 
-    for rep_pid in ns_to_rep_pid.values():
+    for ns_inode_val, ns_pids in ns_to_pids.items():
+        # Build socket inode→pid map scoped to this namespace's PIDs only.
+        # Scanning fewer PIDs reduces the race window significantly.
+        inode_to_pid = _build_socket_inode_map(ns_pids)
+
+        # Best-effort namespace name: name of the lowest-PID process in this ns.
+        # Used as fallback when a specific socket owner can't be resolved.
+        rep_pid = min(ns_pids)
+        ns_fallback_name = _read_comm(rep_pid)
+
         base = Path(f"/proc/{rep_pid}/net")
         for filename, proto, v6 in [
             ("tcp", "tcp", False),
@@ -197,7 +208,11 @@ def collect_namespace_connections(
                 v6_flag = row.pop("_v6", False)
                 owner_pid = inode_to_pid.get(sock_inode)
 
+                # Try to resolve the specific process that owns this socket.
+                # Fall back to the namespace representative name, then "Container".
                 name = _read_comm(owner_pid) if owner_pid else None
+                if name is None:
+                    name = ns_fallback_name
                 label = name or "Container"
 
                 row.update({
