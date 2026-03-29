@@ -231,6 +231,9 @@ class TapMap:
             )
             initial_body_class = self._class_for_modal_screen(self.SCR_MISSING_GEO_DB)
 
+        all_node_names = [LOCAL_NODE_NAME] + [n.name for n in self.runtime.hub_nodes]
+        initial_active = all_node_names if self.runtime.is_hub else [LOCAL_NODE_NAME]
+
         return render_layout(
             app_name=self.runtime.meta.name,
             start_fig=start_fig,
@@ -246,6 +249,7 @@ class TapMap:
             modal_overlay_class=self._modal_overlay_class(initial_modal_open),
             is_hub=self.runtime.is_hub,
             hub_node_names=[n.name for n in self.runtime.hub_nodes],
+            initial_active_nodes=initial_active,
         )
 
     @staticmethod

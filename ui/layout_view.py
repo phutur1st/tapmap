@@ -27,6 +27,7 @@ def render_layout(
     modal_overlay_class: str,
     is_hub: bool = False,
     hub_node_names: list[str] | None = None,
+    initial_active_nodes: list[str] | None = None,
 ) -> html.Div:
     """Render the application layout."""
     return html.Div(
@@ -41,7 +42,7 @@ def render_layout(
             dcc.Store(id="ui_view", data={"points": [], "point_nodes": [], "summaries": {}, "details": {}}),
             dcc.Store(id="modal_state", data=initial_modal_state),
             dcc.Store(id="open_ports_prefs", data={"show_system": False}),
-            dcc.Store(id="active_nodes", data=["__local__"]),
+            dcc.Store(id="active_nodes", data=initial_active_nodes if initial_active_nodes is not None else ["__local__"]),
             dcc.Store(id="process_filter", data=None),
             dcc.Input(
                 id="key_capture",
