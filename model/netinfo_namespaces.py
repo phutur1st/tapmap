@@ -129,6 +129,10 @@ def _read_net_file(
         else:
             status = "NONE"
 
+        # inode=0 means TIME_WAIT / orphaned socket — no owning process exists
+        if inode == 0:
+            continue
+
         rows.append({
             "proto": proto,
             "status": status,
@@ -185,9 +189,15 @@ def collect_namespace_connections(
         # Scanning fewer PIDs reduces the race window significantly.
         inode_to_pid = _build_socket_inode_map(ns_pids)
 
-        # Best-effort namespace name: name of the lowest-PID process in this ns.
-        # Used as fallback when a specific socket owner can't be resolved.
-        rep_pid = min(ns_pids)
+        # Best-effort namespace name: use the process that owns the most sockets
+        # in this namespace (most likely the main app, not a supervisor/init).
+        # Fall back to the lowest PID if counts are tied or inode map is empty.
+        if inode_to_pid:
+            from collections import Counter
+            pid_socket_counts = Counter(inode_to_pid.values())
+            rep_pid = pid_socket_counts.most_common(1)[0][0]
+        else:
+            rep_pid = min(ns_pids)
         ns_fallback_name = _read_comm(rep_pid)
 
         base = Path(f"/proc/{rep_pid}/net")
