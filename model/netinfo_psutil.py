@@ -79,24 +79,48 @@ class PsutilNetInfo:
 
         return results
 
+    _NS_TIMEOUT_S: float = 3.0
+
     def _get_namespace_connections(
         self, existing: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Return connections from non-host namespaces, deduped against existing."""
-        try:
-            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
-            from .netinfo_namespaces import collect_namespace_connections
+        """Return connections from non-host namespaces, deduped against existing.
 
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="ns-scan") as ex:
-                future = ex.submit(collect_namespace_connections, self.allowed_statuses)
-                try:
-                    ns_conns = future.result(timeout=4.0)
-                except FutureTimeout:
-                    logger.warning("Namespace scan timed out after 4s — skipping")
-                    return []
-        except Exception as exc:
-            logger.debug("Namespace scan failed: %s", exc)
+        Runs the scan in a daemon thread so a hung /proc read cannot block the
+        poll indefinitely.  On the first timeout the scan is permanently
+        disabled to prevent thread accumulation.
+        """
+        import queue
+        import threading
+
+        from .netinfo_namespaces import collect_namespace_connections
+
+        result_q: queue.Queue[list[dict[str, Any]] | Exception] = queue.Queue()
+
+        def _worker() -> None:
+            try:
+                result_q.put(collect_namespace_connections(self.allowed_statuses))
+            except Exception as exc:
+                result_q.put(exc)
+
+        t = threading.Thread(target=_worker, daemon=True, name="ns-scan")
+        t.start()
+        try:
+            outcome = result_q.get(timeout=self._NS_TIMEOUT_S)
+        except queue.Empty:
+            logger.warning(
+                "Namespace scan timed out after %.0fs — disabling for this session",
+                self._NS_TIMEOUT_S,
+            )
+            self._scan_namespaces = False
             return []
+
+        if isinstance(outcome, Exception):
+            logger.debug("Namespace scan failed: %s", outcome)
+            self._scan_namespaces = False
+            return []
+
+        ns_conns = outcome
 
         # Build dedup set from existing results
         seen: set[tuple] = {
