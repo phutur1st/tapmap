@@ -166,6 +166,7 @@ class CacheViewBuilder:
         self,
         ui_cache: dict[str, Any],
         active_nodes: list[str] | None = None,
+        process_filter: list[str] | None = None,
     ) -> dict[str, Any]:
         """Group cached entries by rounded coordinates and build map view data."""
         cache = ui_cache if isinstance(ui_cache, dict) else {}
@@ -182,6 +183,15 @@ class CacheViewBuilder:
                     (v.get("node") is None and LOCAL_NODE_NAME in active_set)
                     or v.get("node") in active_set
                 )
+            }
+
+        if process_filter is not None:
+            filter_set = set(process_filter)
+            cache = {
+                k: v
+                for k, v in cache.items()
+                if isinstance(v, dict)
+                and any(isinstance(p, str) and p in filter_set for p in (v.get("processes") or []))
             }
 
         groups = self._group_by_coord(cache)

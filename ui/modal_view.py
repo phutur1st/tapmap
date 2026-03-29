@@ -43,6 +43,7 @@ class ModalTextBuilder:
             "menu_help": "Help",
             "menu_about": "About",
             "menu_node_status": "Node status",
+            "menu_filter_processes": "Filter processes",
         }
 
     def for_action(
@@ -53,6 +54,8 @@ class ModalTextBuilder:
         show_system: bool = False,
         is_docker: bool,
         node_statuses: list[dict[str, Any]] | None = None,
+        ui_cache: dict[str, Any] | None = None,
+        process_filter: list[str] | None = None,
     ) -> list[Any]:
         """Build modal body content for a menu action.
 
@@ -76,6 +79,9 @@ class ModalTextBuilder:
 
         if action == "menu_node_status":
             return self._render_node_status(node_statuses or [])
+
+        if action == "menu_filter_processes":
+            return self._render_process_filter(ui_cache or {}, process_filter)
 
         if action == "menu_help":
             return render_help()
@@ -524,6 +530,78 @@ class ModalTextBuilder:
             body_rows=body_rows,
         )
         return [header, table]
+
+    @classmethod
+    def _render_process_filter(
+        cls,
+        ui_cache: dict[str, Any],
+        process_filter: list[str] | None,
+    ) -> list[Any]:
+        """Render process filter checklist modal."""
+        all_procs: list[str] = sorted(
+            {
+                p
+                for entry in ui_cache.values()
+                if isinstance(entry, dict)
+                for p in (entry.get("processes") or [])
+                if isinstance(p, str) and p.strip()
+            },
+            key=str.lower,
+        )
+
+        selected_value = all_procs if process_filter is None else [p for p in process_filter if p in set(all_procs)]
+        options = [{"label": p, "value": p} for p in all_procs]
+        active_count = len(selected_value)
+        total_count = len(all_procs)
+
+        header = html.H1("Filter processes")
+        if not all_procs:
+            return [header, html.Pre("(no processes seen yet — map is empty)")]
+
+        subtitle = html.P(
+            f"{active_count} of {total_count} selected",
+            id="filter_count_label",
+            className="modal-subtitle",
+        )
+
+        search = dcc.Input(
+            id="filter_search",
+            type="text",
+            placeholder="Search processes...",
+            debounce=False,
+            className="mx-filter-search",
+            value="",
+        )
+
+        actions = html.Div(
+            [
+                html.Button(
+                    "Select all",
+                    id="btn_filter_select_all",
+                    n_clicks=0,
+                    className="mx-btn mx-btn--node",
+                    type="button",
+                ),
+                html.Button(
+                    "Deselect all",
+                    id="btn_filter_deselect_all",
+                    n_clicks=0,
+                    className="mx-btn mx-btn--node",
+                    type="button",
+                ),
+            ],
+            className="mx-filter-actions",
+        )
+
+        checklist = dcc.Checklist(
+            id="filter_checklist",
+            options=options,
+            value=selected_value,
+            className="mx-process-checklist",
+            labelClassName="mx-process-label",
+        )
+
+        return [header, subtitle, search, actions, checklist]
 
     def missing_geo_db(self, geo_data_dir: str, *, is_docker: bool) -> list[Any]:
         """Render the Missing GeoIP databases view."""

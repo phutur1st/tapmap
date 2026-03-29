@@ -19,6 +19,7 @@ KEY_MAP = {
     "__h__": "menu_help",
     "__a__": "menu_about",
     "__n__": "menu_node_status",
+    "__f__": "menu_filter_processes",
     "__[__": "node_prev",
     "__]__": "node_next",
     "__esc__": "escape",

@@ -42,6 +42,7 @@ def render_layout(
             dcc.Store(id="modal_state", data=initial_modal_state),
             dcc.Store(id="open_ports_prefs", data={"show_system": False}),
             dcc.Store(id="active_nodes", data=["__local__"]),
+            dcc.Store(id="process_filter", data=None),
             dcc.Input(
                 id="key_capture",
                 type="text",
@@ -93,6 +94,7 @@ def render_layout(
                             _menu_button("Show open ports (O)", "menu_open_ports"),
                             _menu_button("Show cache in terminal (T)", "menu_cache_terminal"),
                             _menu_button("Clear cache (C)", "menu_clear_cache"),
+                            _menu_button("Filter processes (F)", "menu_filter_processes"),
                         ],
                         className="mx-menu-group",
                     ),
