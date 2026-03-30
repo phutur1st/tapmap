@@ -20,6 +20,8 @@ KEY_MAP = {
     "__a__": "menu_about",
     "__n__": "menu_node_status",
     "__f__": "menu_filter_processes",
+    "__k__": "menu_filter_countries",
+    "__w__": "menu_filter_networks",
     "__[__": "node_prev",
     "__]__": "node_next",
     "__esc__": "escape",

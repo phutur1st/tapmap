@@ -230,6 +230,8 @@ def render_help() -> list[Any]:
                         html.Tr([html.Td("A"), html.Td("About"), html.Td("Window")]),
                         html.Tr([html.Td("N"), html.Td("Node status (hub mode only)"), html.Td("Window")]),
                         html.Tr([html.Td("F"), html.Td("Filter processes shown on map"), html.Td("Window")]),
+                        html.Tr([html.Td("K"), html.Td("Filter countries shown on map"), html.Td("Window")]),
+                        html.Tr([html.Td("W"), html.Td("Filter networks (ASN) shown on map"), html.Td("Window")]),
                         html.Tr([html.Td("[ ]"), html.Td("Cycle through node views (hub mode only)"), html.Td("Map")]),
                         html.Tr([html.Td("ESC"), html.Td("Close window"), html.Td("Window")]),
                     ]

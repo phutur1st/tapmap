@@ -22,10 +22,12 @@ class CacheViewBuilder:
         coord_precision: int = 3,
         debug: bool = False,
         is_docker: bool = False,
+        hostname_cache: Any = None,
     ) -> None:
         self.coord_precision = int(coord_precision)
         self.debug = bool(debug)
         self.is_docker = bool(is_docker)
+        self.hostname_cache = hostname_cache
         self.logger = logging.getLogger(__name__)
 
     @staticmethod
@@ -100,6 +102,9 @@ class CacheViewBuilder:
             if not isinstance(entry, dict):
                 entry = self._new_entry(candidate, ip=ip, port=port, proto=proto)
                 cache[key] = entry
+            else:
+                entry["hit_count"] = entry.get("hit_count", 1) + 1
+                entry["last_seen"] = self._now_text()
 
             if process_name:
                 self._merge_process(entry, process_name=process_name, pid=pid)
@@ -115,6 +120,7 @@ class CacheViewBuilder:
     def _new_entry(
         self, candidate: dict[str, Any], *, ip: str, port: int, proto: str | None
     ) -> dict[str, Any]:
+        now = self._now_text()
         return {
             "ip": ip,
             "port": port,
@@ -126,7 +132,9 @@ class CacheViewBuilder:
             "asn": candidate.get("asn"),
             "asn_org": candidate.get("asn_org"),
             "node": safe_str(candidate.get("node")) or None,
-            "first_seen": self._now_text(),
+            "first_seen": now,
+            "last_seen": now,
+            "hit_count": 1,
             "processes": [],
             "proc_pids": {},
         }
@@ -167,6 +175,8 @@ class CacheViewBuilder:
         ui_cache: dict[str, Any],
         active_nodes: list[str] | None = None,
         process_filter: list[str] | None = None,
+        country_filter: list[str] | None = None,
+        asn_filter: list[str] | None = None,
     ) -> dict[str, Any]:
         """Group cached entries by rounded coordinates and build map view data."""
         cache = ui_cache if isinstance(ui_cache, dict) else {}
@@ -192,6 +202,22 @@ class CacheViewBuilder:
                 for k, v in cache.items()
                 if isinstance(v, dict)
                 and any(isinstance(p, str) and p in filter_set for p in (v.get("processes") or []))
+            }
+
+        if country_filter is not None:
+            country_set = set(country_filter)
+            cache = {
+                k: v
+                for k, v in cache.items()
+                if isinstance(v, dict) and v.get("country") in country_set
+            }
+
+        if asn_filter is not None:
+            asn_set = set(asn_filter)
+            cache = {
+                k: v
+                for k, v in cache.items()
+                if isinstance(v, dict) and v.get("asn_org") in asn_set
             }
 
         groups = self._group_by_coord(cache)
@@ -434,8 +460,16 @@ class CacheViewBuilder:
 
             node_label = e.get("node")
             node_txt = f" [{node_label}]" if node_label else ""
+            first_seen = e.get("first_seen") or "?"
+            last_seen = e.get("last_seen") or "?"
+            hit_count = e.get("hit_count") or 1
             lines.append(f"  {addr} ({proto}){node_txt}")
             lines.append(f"    Procs: {procs_txt}")
+            lines.append(f"    First: {first_seen} | Last: {last_seen} | Hits: {hit_count}")
+            if self.hostname_cache is not None:
+                hostname = self.hostname_cache.get(ip)
+                if hostname:
+                    lines.append(f"    Host: {hostname}")
             lines.append("")
 
         return "\n".join(lines)

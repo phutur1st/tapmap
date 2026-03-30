@@ -65,6 +65,28 @@ def _ns_inode(pid: int) -> int | None:
         return None
 
 
+_CONTAINER_ID_RE = __import__("re").compile(r"/docker/([0-9a-f]{64})")
+
+
+def _parse_container_id_from_cgroup(text: str) -> str | None:
+    """Extract the first Docker container ID from cgroup file content.
+
+    Returns the full 64-char hex ID, or None if not found.
+    """
+    m = _CONTAINER_ID_RE.search(text)
+    return m.group(1) if m else None
+
+
+def _read_container_id(pid: int) -> str | None:
+    """Return a 12-char short container ID for the given PID, or None."""
+    try:
+        text = Path(f"/proc/{pid}/cgroup").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    full = _parse_container_id_from_cgroup(text)
+    return full[:12] if full else None
+
+
 def _read_comm(pid: int) -> str | None:
     try:
         return Path(f"/proc/{pid}/comm").read_text(encoding="utf-8", errors="replace").strip()
@@ -230,6 +252,12 @@ def collect_namespace_connections(
                 if name is None:
                     name = ns_fallback_name
                 label = name or "Container"
+
+                # Append short container ID if this process lives in a Docker cgroup.
+                container_pid = owner_pid if owner_pid else rep_pid
+                short_id = _read_container_id(container_pid)
+                if short_id:
+                    label = f"{label} [{short_id}]"
 
                 row.update({
                     "pid": owner_pid,

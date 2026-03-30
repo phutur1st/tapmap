@@ -44,6 +44,8 @@ class ModalTextBuilder:
             "menu_about": "About",
             "menu_node_status": "Node status",
             "menu_filter_processes": "Filter processes",
+            "menu_filter_countries": "Filter countries",
+            "menu_filter_networks": "Filter networks",
         }
 
     def for_action(
@@ -56,6 +58,8 @@ class ModalTextBuilder:
         node_statuses: list[dict[str, Any]] | None = None,
         ui_cache: dict[str, Any] | None = None,
         process_filter: list[str] | None = None,
+        country_filter: list[str] | None = None,
+        asn_filter: list[str] | None = None,
     ) -> list[Any]:
         """Build modal body content for a menu action.
 
@@ -82,6 +86,12 @@ class ModalTextBuilder:
 
         if action == "menu_filter_processes":
             return self._render_process_filter(ui_cache or {}, process_filter)
+
+        if action == "menu_filter_countries":
+            return self._render_country_filter(ui_cache or {}, country_filter)
+
+        if action == "menu_filter_networks":
+            return self._render_asn_filter(ui_cache or {}, asn_filter)
 
         if action == "menu_help":
             return render_help()
@@ -602,6 +612,128 @@ class ModalTextBuilder:
         )
 
         return [header, subtitle, search, actions, checklist]
+
+    @classmethod
+    def _render_country_filter(
+        cls,
+        ui_cache: dict[str, Any],
+        country_filter: list[str] | None,
+    ) -> list[Any]:
+        """Render country filter checklist modal."""
+        all_countries: list[str] = sorted(
+            {
+                entry["country"]
+                for entry in ui_cache.values()
+                if isinstance(entry, dict) and isinstance(entry.get("country"), str) and entry["country"].strip()
+            },
+            key=str.lower,
+        )
+
+        selected_value = all_countries if country_filter is None else [c for c in country_filter if c in set(all_countries)]
+        options = [{"label": c, "value": c} for c in all_countries]
+        active_count = len(selected_value)
+        total_count = len(all_countries)
+
+        header = html.H1("Filter countries")
+        if not all_countries:
+            return [header, html.Pre("(no countries seen yet — map is empty)")]
+
+        subtitle = html.P(
+            f"{active_count} of {total_count} selected",
+            id="country_filter_count_label",
+            className="modal-subtitle",
+        )
+
+        actions = html.Div(
+            [
+                html.Button(
+                    "Select all",
+                    id="btn_country_filter_select_all",
+                    n_clicks=0,
+                    className="mx-btn mx-btn--node",
+                    type="button",
+                ),
+                html.Button(
+                    "Deselect all",
+                    id="btn_country_filter_deselect_all",
+                    n_clicks=0,
+                    className="mx-btn mx-btn--node",
+                    type="button",
+                ),
+            ],
+            className="mx-filter-actions",
+        )
+
+        checklist = dcc.Checklist(
+            id="country_filter_checklist",
+            options=options,
+            value=selected_value,
+            className="mx-process-checklist",
+            labelClassName="mx-process-label",
+        )
+
+        return [header, subtitle, actions, checklist]
+
+    @classmethod
+    def _render_asn_filter(
+        cls,
+        ui_cache: dict[str, Any],
+        asn_filter: list[str] | None,
+    ) -> list[Any]:
+        """Render ASN/network filter checklist modal."""
+        all_orgs: list[str] = sorted(
+            {
+                entry["asn_org"]
+                for entry in ui_cache.values()
+                if isinstance(entry, dict) and isinstance(entry.get("asn_org"), str) and entry["asn_org"].strip()
+            },
+            key=str.lower,
+        )
+
+        selected_value = all_orgs if asn_filter is None else [o for o in asn_filter if o in set(all_orgs)]
+        options = [{"label": o, "value": o} for o in all_orgs]
+        active_count = len(selected_value)
+        total_count = len(all_orgs)
+
+        header = html.H1("Filter networks")
+        if not all_orgs:
+            return [header, html.Pre("(no networks seen yet — map is empty)")]
+
+        subtitle = html.P(
+            f"{active_count} of {total_count} selected",
+            id="asn_filter_count_label",
+            className="modal-subtitle",
+        )
+
+        actions = html.Div(
+            [
+                html.Button(
+                    "Select all",
+                    id="btn_asn_filter_select_all",
+                    n_clicks=0,
+                    className="mx-btn mx-btn--node",
+                    type="button",
+                ),
+                html.Button(
+                    "Deselect all",
+                    id="btn_asn_filter_deselect_all",
+                    n_clicks=0,
+                    className="mx-btn mx-btn--node",
+                    type="button",
+                ),
+            ],
+            className="mx-filter-actions",
+        )
+
+        checklist = dcc.Checklist(
+            id="asn_filter_checklist",
+            options=options,
+            value=selected_value,
+            className="mx-process-checklist",
+            labelClassName="mx-process-label",
+        )
+
+        return [header, subtitle, actions, checklist]
 
     def missing_geo_db(self, geo_data_dir: str, *, is_docker: bool) -> list[Any]:
         """Render the Missing GeoIP databases view."""

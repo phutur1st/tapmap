@@ -28,6 +28,7 @@ def render_layout(
     is_hub: bool = False,
     hub_node_names: list[str] | None = None,
     initial_active_nodes: list[str] | None = None,
+    initial_cache: dict[str, Any] | None = None,
 ) -> html.Div:
     """Render the application layout."""
     return html.Div(
@@ -37,13 +38,15 @@ def render_layout(
             dcc.Store(id="key_action", data=None),
             dcc.Store(id="status_flash", data=None),
             dcc.Store(id="model_snapshot", data=None),
-            dcc.Store(id="ui_cache", data={}),
+            dcc.Store(id="ui_cache", data=initial_cache if initial_cache is not None else {}),
             dcc.Store(id="status_cache", data=status_cache_store),
             dcc.Store(id="ui_view", data={"points": [], "point_nodes": [], "summaries": {}, "details": {}}),
             dcc.Store(id="modal_state", data=initial_modal_state),
             dcc.Store(id="open_ports_prefs", data={"show_system": False}),
             dcc.Store(id="active_nodes", data=initial_active_nodes if initial_active_nodes is not None else ["__local__"]),
             dcc.Store(id="process_filter", data=None),
+            dcc.Store(id="country_filter", data=None),
+            dcc.Store(id="asn_filter", data=None),
             dcc.Input(
                 id="key_capture",
                 type="text",
@@ -96,6 +99,8 @@ def render_layout(
                             _menu_button("Show cache in terminal (T)", "menu_cache_terminal"),
                             _menu_button("Clear cache (C)", "menu_clear_cache"),
                             _menu_button("Filter processes (F)", "menu_filter_processes"),
+                            _menu_button("Filter countries (K)", "menu_filter_countries"),
+                            _menu_button("Filter networks (W)", "menu_filter_networks"),
                         ],
                         className="mx-menu-group",
                     ),

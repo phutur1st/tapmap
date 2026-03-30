@@ -21,6 +21,7 @@ requires one return value. For example, modal_controller returns:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import platform
 import sys
@@ -33,7 +34,7 @@ from typing import Any, ClassVar, Final
 from dash import ALL, Dash, Input, Output, State, ctx, html, no_update
 
 from app_dirs import open_folder
-from config import COORD_PRECISION, MY_LOCATION, POLL_INTERVAL_MS, ZOOM_NEAR_KM
+from config import CACHE_PERSIST_INTERVAL_TICKS, COORD_PRECISION, HOSTNAME_TIMEOUT_S, MY_LOCATION, POLL_INTERVAL_MS, ZOOM_NEAR_KM
 from model.geoinfo import GeoInfo
 from model.maxmind_updater import MaxMindUpdater
 from model.model import Model
@@ -60,6 +61,7 @@ from state.poll import (
 )
 from state.status_cache import StatusCache
 from state.status_line import render_status_text
+from model.hostname_cache import HostnameCache
 from ui.cache_view import CacheViewBuilder
 from ui.layout_view import render_layout
 from ui.map_view import MapUI
@@ -79,7 +81,7 @@ class TapMap:
     """Coordinate Dash callbacks, model polling, and UI state."""
 
     MENU_SCREENS: ClassVar[frozenset[str]] = frozenset(
-        {"menu_unmapped", "menu_lan_local", "menu_open_ports", "menu_help", "menu_about", "menu_node_status", "menu_filter_processes"}
+        {"menu_unmapped", "menu_lan_local", "menu_open_ports", "menu_help", "menu_about", "menu_node_status", "menu_filter_processes", "menu_filter_countries", "menu_filter_networks"}
     )
     MENU_COMMANDS: ClassVar[frozenset[str]] = frozenset(
         {"menu_clear_cache", "menu_cache_terminal", "menu_recheck_geoip"}
@@ -106,10 +108,12 @@ class TapMap:
         )
 
         self.ui = MapUI(zoom_near_km=ZOOM_NEAR_KM, debug=self.DEBUG_COORDS)
+        self._hostname_cache = HostnameCache(timeout_s=HOSTNAME_TIMEOUT_S)
         self.view_builder = CacheViewBuilder(
             coord_precision=COORD_PRECISION,
             debug=self.DEBUG_COORDS,
             is_docker=self.runtime.is_docker,
+            hostname_cache=self._hostname_cache,
         )
 
         self.modal_text = ModalTextBuilder(
@@ -233,6 +237,7 @@ class TapMap:
 
         all_node_names = [LOCAL_NODE_NAME] + [n.name for n in self.runtime.hub_nodes]
         initial_active = all_node_names if self.runtime.is_hub else [LOCAL_NODE_NAME]
+        initial_cache = self._load_cache()
 
         return render_layout(
             app_name=self.runtime.meta.name,
@@ -250,7 +255,36 @@ class TapMap:
             is_hub=self.runtime.is_hub,
             hub_node_names=[n.name for n in self.runtime.hub_nodes],
             initial_active_nodes=initial_active,
+            initial_cache=initial_cache,
         )
+
+    def _cache_file_path(self) -> Path:
+        return self.runtime.geo_data_dir / "ui_cache.json"
+
+    def _load_cache(self) -> dict[str, Any]:
+        """Load persisted UI cache from disk. Returns {} on any error."""
+        try:
+            text = self._cache_file_path().read_text(encoding="utf-8")
+            data = json.loads(text)
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_cache_bg(self, cache: dict[str, Any]) -> None:
+        """Write UI cache to disk in a background daemon thread (atomic write)."""
+        import threading
+
+        dest = self._cache_file_path()
+
+        def _worker() -> None:
+            try:
+                tmp = dest.with_suffix(".tmp")
+                tmp.write_text(json.dumps(cache), encoding="utf-8")
+                tmp.replace(dest)
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True, name="cache-save").start()
 
     @staticmethod
     def _ensure_dict(value: object) -> dict[str, Any]:
@@ -412,6 +446,8 @@ class TapMap:
         ui_cache: dict[str, Any],
         active_nodes: list[str] | None = None,
         process_filter: list[str] | None = None,
+        country_filter: list[str] | None = None,
+        asn_filter: list[str] | None = None,
     ) -> tuple[Any, Any, Any, Any, Any]:
         snap = self.model.snapshot()
         if not isinstance(snap, dict):
@@ -440,7 +476,16 @@ class TapMap:
         if self.DEBUG_COORDS and (tick_n % self.DEBUG_COORDS_EVERY_N_TICKS == 0):
             self.view_builder.debug_coords(updated_cache)
 
-        view = self.view_builder.build_view_from_cache(updated_cache, active_nodes=_active, process_filter=process_filter)
+        if tick_n % CACHE_PERSIST_INTERVAL_TICKS == 0:
+            self._save_cache_bg(updated_cache)
+
+        view = self.view_builder.build_view_from_cache(
+            updated_cache,
+            active_nodes=_active,
+            process_filter=process_filter,
+            country_filter=country_filter,
+            asn_filter=asn_filter,
+        )
         return snap, updated_cache, status_cache.to_store(), view, no_update
 
     def _open_browser(self, url: str, delay_s: float = 0.8) -> None:
@@ -501,6 +546,8 @@ class TapMap:
         geo_path: str,
         ui_cache: dict[str, Any] | None = None,
         process_filter: list[str] | None = None,
+        country_filter: list[str] | None = None,
+        asn_filter: list[str] | None = None,
     ) -> tuple[list[Any], str]:
         if not isinstance(modal_state, dict):
             return [], "modal-body"
@@ -537,6 +584,8 @@ class TapMap:
                 node_statuses=self._node_statuses if self.runtime.is_hub else None,
                 ui_cache=ui_cache,
                 process_filter=process_filter,
+                country_filter=country_filter,
+                asn_filter=asn_filter,
             )
             return self._as_children(body), self._class_for_modal_screen(screen)
 
@@ -572,6 +621,8 @@ class TapMap:
             State("status_flash", "data"),
             State("active_nodes", "data"),
             State("process_filter", "data"),
+            State("country_filter", "data"),
+            State("asn_filter", "data"),
             prevent_initial_call=False,
         )
         def poll_model(
@@ -586,11 +637,15 @@ class TapMap:
             status_flash_data: Any,
             active_nodes_data: Any,
             process_filter_data: Any,
+            country_filter_data: Any,
+            asn_filter_data: Any,
         ):
             status_cache = StatusCache.from_store(status_cache_data)
             ui_cache = self._ensure_dict(ui_cache_data)
             active_nodes = active_nodes_data if isinstance(active_nodes_data, list) else [LOCAL_NODE_NAME]
             process_filter = process_filter_data if isinstance(process_filter_data, list) else None
+            country_filter = country_filter_data if isinstance(country_filter_data, list) else None
+            asn_filter = asn_filter_data if isinstance(asn_filter_data, list) else None
             trigger = ctx.triggered_id
             decision = decide_poll_action(
                 trigger=trigger,
@@ -611,7 +666,8 @@ class TapMap:
 
             if decision.action == ACTION_NORMAL_POLL:
                 snap, cache, sc_store, view, _flash = self._handle_normal_poll(
-                    tick_n, status_cache, ui_cache, active_nodes, process_filter
+                    tick_n, status_cache, ui_cache, active_nodes, process_filter,
+                    country_filter=country_filter, asn_filter=asn_filter,
                 )
 
                 now = datetime.now().timestamp()
@@ -694,6 +750,8 @@ class TapMap:
             Input("menu_help", "n_clicks"),
             Input("menu_node_status", "n_clicks", allow_optional=True),
             Input("menu_filter_processes", "n_clicks"),
+            Input("menu_filter_countries", "n_clicks"),
+            Input("menu_filter_networks", "n_clicks"),
             Input("btn_close", "n_clicks"),
             Input("btn_check_databases", "n_clicks", allow_optional=True),
             Input("toggle_open_ports_system", "value", allow_optional=True),
@@ -706,6 +764,8 @@ class TapMap:
             State("open_ports_prefs", "data"),
             State("ui_cache", "data"),
             State("process_filter", "data"),
+            State("country_filter", "data"),
+            State("asn_filter", "data"),
             prevent_initial_call=True,
         )
         def modal_controller(
@@ -717,6 +777,8 @@ class TapMap:
             _help_clicks: int,
             _node_status_clicks: int | None,
             _filter_procs_clicks: int,
+            _filter_countries_clicks: int,
+            _filter_networks_clicks: int,
             _close_clicks: int,
             _check_db_clicks: int | None,
             toggle_system_value: Any,
@@ -729,6 +791,8 @@ class TapMap:
             open_ports_prefs_data: Any,
             ui_cache_data: Any,
             process_filter_data: Any,
+            country_filter_data: Any,
+            asn_filter_data: Any,
         ):
             # Identify which Dash Input triggered this callback.
             trigger = ctx.triggered_id
@@ -736,10 +800,15 @@ class TapMap:
 
             ui_cache = self._ensure_dict(ui_cache_data)
             process_filter = process_filter_data if isinstance(process_filter_data, list) else None
+            country_filter = country_filter_data if isinstance(country_filter_data, list) else None
+            asn_filter = asn_filter_data if isinstance(asn_filter_data, list) else None
 
             # Apply a modal_state to the UI by rendering and updating overlay classes.
             def _apply_modal_state(next_state: dict[str, Any] | None) -> tuple[Any, Any, Any, Any]:
-                children, body_class = self._render_modal(next_state, snapshot, ui_view, geo_path, ui_cache, process_filter)
+                children, body_class = self._render_modal(
+                    next_state, snapshot, ui_view, geo_path, ui_cache, process_filter,
+                    country_filter=country_filter, asn_filter=asn_filter,
+                )
                 overlay_open = next_state is not None
                 overlay_class = self._modal_overlay_class(overlay_open)
                 return next_state, overlay_class, children, body_class
@@ -907,13 +976,25 @@ class TapMap:
                 Input("active_nodes", "data"),
                 State("ui_cache", "data"),
                 State("process_filter", "data"),
+                State("country_filter", "data"),
+                State("asn_filter", "data"),
                 prevent_initial_call=True,
             )
-            def on_active_nodes_change(active_nodes_data: Any, ui_cache_data: Any, process_filter_data: Any) -> Any:
+            def on_active_nodes_change(
+                active_nodes_data: Any,
+                ui_cache_data: Any,
+                process_filter_data: Any,
+                country_filter_data: Any,
+                asn_filter_data: Any,
+            ) -> Any:
                 ui_cache = self._ensure_dict(ui_cache_data)
                 active = active_nodes_data if isinstance(active_nodes_data, list) else [LOCAL_NODE_NAME]
                 pf = process_filter_data if isinstance(process_filter_data, list) else None
-                return self.view_builder.build_view_from_cache(ui_cache, active_nodes=active, process_filter=pf)
+                cf = country_filter_data if isinstance(country_filter_data, list) else None
+                af = asn_filter_data if isinstance(asn_filter_data, list) else None
+                return self.view_builder.build_view_from_cache(
+                    ui_cache, active_nodes=active, process_filter=pf, country_filter=cf, asn_filter=af
+                )
 
         @self.app.callback(
             Output("process_filter", "data"),
@@ -945,15 +1026,25 @@ class TapMap:
             Input("process_filter", "data"),
             State("ui_cache", "data"),
             State("active_nodes", "data"),
+            State("country_filter", "data"),
+            State("asn_filter", "data"),
             prevent_initial_call=True,
         )
         def rebuild_view_on_filter_change(
-            process_filter_data: Any, ui_cache_data: Any, active_nodes_data: Any
+            process_filter_data: Any,
+            ui_cache_data: Any,
+            active_nodes_data: Any,
+            country_filter_data: Any,
+            asn_filter_data: Any,
         ) -> Any:
             ui_cache = self._ensure_dict(ui_cache_data)
             active = active_nodes_data if isinstance(active_nodes_data, list) else [LOCAL_NODE_NAME]
             pf = process_filter_data if isinstance(process_filter_data, list) else None
-            return self.view_builder.build_view_from_cache(ui_cache, active_nodes=active, process_filter=pf)
+            cf = country_filter_data if isinstance(country_filter_data, list) else None
+            af = asn_filter_data if isinstance(asn_filter_data, list) else None
+            return self.view_builder.build_view_from_cache(
+                ui_cache, active_nodes=active, process_filter=pf, country_filter=cf, asn_filter=af
+            )
 
         @self.app.callback(
             Output("filter_checklist", "value"),
@@ -1005,6 +1096,129 @@ class TapMap:
                 q = search.strip().lower()
                 all_procs = [p for p in all_procs if q in p.lower()]
             return [{"label": p, "value": p} for p in all_procs]
+
+        @self.app.callback(
+            Output("country_filter", "data"),
+            Input("country_filter_checklist", "value", allow_optional=True),
+            State("ui_cache", "data"),
+            prevent_initial_call=True,
+        )
+        def update_country_filter(checklist_value: Any, ui_cache_data: Any) -> Any:
+            if checklist_value is None:
+                return no_update
+            ui_cache = self._ensure_dict(ui_cache_data)
+            all_countries = sorted(
+                {
+                    entry["country"]
+                    for entry in ui_cache.values()
+                    if isinstance(entry, dict) and isinstance(entry.get("country"), str) and entry["country"].strip()
+                },
+                key=str.lower,
+            )
+            selected = set(checklist_value)
+            if selected >= set(all_countries):
+                return None
+            return sorted(selected, key=str.lower)
+
+        @self.app.callback(
+            Output("asn_filter", "data"),
+            Input("asn_filter_checklist", "value", allow_optional=True),
+            State("ui_cache", "data"),
+            prevent_initial_call=True,
+        )
+        def update_asn_filter(checklist_value: Any, ui_cache_data: Any) -> Any:
+            if checklist_value is None:
+                return no_update
+            ui_cache = self._ensure_dict(ui_cache_data)
+            all_orgs = sorted(
+                {
+                    entry["asn_org"]
+                    for entry in ui_cache.values()
+                    if isinstance(entry, dict) and isinstance(entry.get("asn_org"), str) and entry["asn_org"].strip()
+                },
+                key=str.lower,
+            )
+            selected = set(checklist_value)
+            if selected >= set(all_orgs):
+                return None
+            return sorted(selected, key=str.lower)
+
+        @self.app.callback(
+            Output("ui_view", "data", allow_duplicate=True),
+            Input("country_filter", "data"),
+            Input("asn_filter", "data"),
+            State("ui_cache", "data"),
+            State("active_nodes", "data"),
+            State("process_filter", "data"),
+            prevent_initial_call=True,
+        )
+        def rebuild_view_on_geo_filter_change(
+            country_filter_data: Any,
+            asn_filter_data: Any,
+            ui_cache_data: Any,
+            active_nodes_data: Any,
+            process_filter_data: Any,
+        ) -> Any:
+            ui_cache = self._ensure_dict(ui_cache_data)
+            active = active_nodes_data if isinstance(active_nodes_data, list) else [LOCAL_NODE_NAME]
+            pf = process_filter_data if isinstance(process_filter_data, list) else None
+            cf = country_filter_data if isinstance(country_filter_data, list) else None
+            af = asn_filter_data if isinstance(asn_filter_data, list) else None
+            return self.view_builder.build_view_from_cache(
+                ui_cache, active_nodes=active, process_filter=pf, country_filter=cf, asn_filter=af
+            )
+
+        @self.app.callback(
+            Output("country_filter_checklist", "value"),
+            Input("btn_country_filter_select_all", "n_clicks", allow_optional=True),
+            Input("btn_country_filter_deselect_all", "n_clicks", allow_optional=True),
+            State("ui_cache", "data"),
+            prevent_initial_call=True,
+        )
+        def handle_country_filter_select_all(
+            _select_clicks: Any, _deselect_clicks: Any, ui_cache_data: Any
+        ) -> Any:
+            trigger = ctx.triggered_id
+            ui_cache = self._ensure_dict(ui_cache_data)
+            all_countries = sorted(
+                {
+                    entry["country"]
+                    for entry in ui_cache.values()
+                    if isinstance(entry, dict) and isinstance(entry.get("country"), str) and entry["country"].strip()
+                },
+                key=str.lower,
+            )
+            if trigger == "btn_country_filter_select_all":
+                return all_countries
+            if trigger == "btn_country_filter_deselect_all":
+                return []
+            return no_update
+
+        @self.app.callback(
+            Output("asn_filter_checklist", "value"),
+            Input("btn_asn_filter_select_all", "n_clicks", allow_optional=True),
+            Input("btn_asn_filter_deselect_all", "n_clicks", allow_optional=True),
+            State("ui_cache", "data"),
+            prevent_initial_call=True,
+        )
+        def handle_asn_filter_select_all(
+            _select_clicks: Any, _deselect_clicks: Any, ui_cache_data: Any
+        ) -> Any:
+            trigger = ctx.triggered_id
+            ui_cache = self._ensure_dict(ui_cache_data)
+            all_orgs = sorted(
+                {
+                    entry["asn_org"]
+                    for entry in ui_cache.values()
+                    if isinstance(entry, dict) and isinstance(entry.get("asn_org"), str) and entry["asn_org"].strip()
+                },
+                key=str.lower,
+            )
+            if trigger == "btn_asn_filter_select_all":
+                return all_orgs
+            if trigger == "btn_asn_filter_deselect_all":
+                return []
+            return no_update
 
         @self.app.callback(
             Output("status_bar", "children"),

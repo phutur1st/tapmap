@@ -42,6 +42,14 @@ MAXMIND_UPDATE_INTERVAL_DAYS: Final[float] = 7.0
 
 # Configure hub-node mode.
 NODE_FETCH_TIMEOUT_S: Final[float] = 4.0
+
+# Configure hostname resolution.
+HOSTNAME_TIMEOUT_S: Final[float] = 2.0
+"""Timeout in seconds for reverse-DNS lookups."""
+
+# Configure cache persistence.
+CACHE_PERSIST_INTERVAL_TICKS: Final[int] = 12
+"""Number of poll ticks between ui_cache saves to disk."""
 """Total HTTP timeout in seconds when a hub polls a node."""
 """Days between automatic GeoLite2 database downloads.
 
